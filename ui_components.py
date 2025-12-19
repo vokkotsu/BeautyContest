@@ -95,7 +95,7 @@ class BeautyContestUI(tk.Tk):
         x = (sw - config.WINDOW_WIDTH) // 2
         y = (sh - config.WINDOW_HEIGHT) // 2
         self.geometry(f"{config.WINDOW_WIDTH}x{config.WINDOW_HEIGHT}+{x}+{y}")
-        self.resizable(True, True) # Fitur teman: Resizable
+        self.resizable(True, True) 
 
     def setup_styles(self):
         style = ttk.Style()
@@ -104,7 +104,7 @@ class BeautyContestUI(tk.Tk):
         style.configure("Treeview", font=config.FONT_NORMAL, rowheight=25)
 
     def create_layout(self):
-        # Menggunakan width=800 sesuai edit teman Anda
+        # Frame kiri (Grid)
         self.frame_left = tk.Frame(self, width=800, bg=config.COLOR_BG_MAIN)
         self.frame_left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=10)
 
@@ -124,6 +124,7 @@ class BeautyContestUI(tk.Tk):
                                   bg=config.COLOR_BG_MAIN, fg=config.COLOR_WARNING, justify="left")
         self.lbl_rules.pack(pady=(20,0), anchor="w")
 
+        # Frame Kanan (Scoreboard & Log)
         self.frame_right = tk.Frame(self, width=320, bg="white", relief="groove", bd=1)
         self.frame_right.pack(side=tk.RIGHT, fill=tk.BOTH, padx=10, pady=10)
 
@@ -132,12 +133,11 @@ class BeautyContestUI(tk.Tk):
         frame_table = tk.Frame(self.frame_right)
         frame_table.pack(fill=tk.X, padx=5)
 
-        # Update Kolom: Nama Pemain jadi prioritas
         columns = ("name", "role", "score")
         self.tree_score = ttk.Treeview(frame_table, columns=columns, show="headings", height=8)
 
         self.tree_score.heading("name", text="Nama Pemain")
-        self.tree_score.column("name", width=100, anchor="w") # Align left biar nama panjang muat
+        self.tree_score.column("name", width=100, anchor="w") 
 
         self.tree_score.heading("role", text="Peran")
         self.tree_score.column("role", width=60, anchor="center")
@@ -167,15 +167,16 @@ class BeautyContestUI(tk.Tk):
         log_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=5, padx=(0,5))
 
     def create_buttons_compact(self):
-        # Menggunakan ukuran tombol besar (8x4) sesuai edit teman Anda
-        btn_0 = tk.Button(self.frame_grid, text="0", font=config.FONT_NORMAL, width=8, height=4,
+        # PERBAIKAN DI SINI: Ukuran tombol dikurangi dari 8x4 menjadi 5x2
+        # Ini akan membuat grid muat di layar laptop standar
+        btn_0 = tk.Button(self.frame_grid, text="0", font=config.FONT_NORMAL, width=5, height=2,
                           command=lambda: self.on_button_click("0"))
         btn_0.grid(row=10, column=9, padx=1, pady=1)
 
         for i in range(10):
             for j in range(10):
                 val = (i * 10) + (j + 1)
-                btn = tk.Button(self.frame_grid, text=str(val), font=config.FONT_NORMAL, width=8, height=4,
+                btn = tk.Button(self.frame_grid, text=str(val), font=config.FONT_NORMAL, width=5, height=2,
                                 command=lambda v=str(val): self.on_button_click(v))
                 btn.grid(row=i, column=j, padx=1, pady=1)
 
@@ -191,7 +192,6 @@ class BeautyContestUI(tk.Tk):
         current_p = self.logic.get_current_player()
         current_p_id = current_p.id if current_p else -1
 
-        # Update Info Giliran Menggunakan NAMA
         if current_p_id != -1:
             turn_text = f"Giliran {current_p.name}"
             if current_p.is_bot:
@@ -208,7 +208,6 @@ class BeautyContestUI(tk.Tk):
 
         self.update_active_rules_display()
 
-        # Update Scoreboard dengan NAMA
         for item in self.tree_score.get_children():
             self.tree_score.delete(item)
 
@@ -276,7 +275,6 @@ class BeautyContestUI(tk.Tk):
             participants = res['winners'] + res['losers']
             participants.sort(key=lambda p: p.id)
 
-            # Format tabel log menggunakan NAMA
             self.log(f"{'Nama':<10} | {'Angka':<5}")
             self.log("-" * 18)
             for p in participants:
@@ -286,12 +284,10 @@ class BeautyContestUI(tk.Tk):
             self.after(delay, lambda: self.animate_step(1))
 
         elif step == 1:
-            # Menggunakan 2 Desimal
             self.log(f"\nRata-rata : {res['avg']:.2f}")
             self.after(delay, lambda: self.animate_step(2))
 
         elif step == 2:
-            # Menggunakan 2 Desimal
             self.log(f"Target (x0.8): {res['target']:.2f}", bold=True)
             if res['logs']:
                 for l in res['logs']:
