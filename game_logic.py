@@ -72,10 +72,10 @@ class BeautyContestLogic:
 
         choices = [p.last_choice for p in active_players]
         
-        # --- PERUBAHAN UTAMA: ROUNDING 2 DESIMAL ---
+        # --- LOGIKA DOUBLE (2 DESIMAL) ---
         raw_avg = sum(choices) / count
-        avg = round(raw_avg, 2)         # Dibulatkan 2 desimal
-        target = round(avg * 0.8, 2)    # Dibulatkan 2 desimal
+        avg = round(raw_avg, 2)         # Bulatkan 2 desimal
+        target = round(avg * 0.8, 2)    # Bulatkan 2 desimal
         
         winners = []
         losers = []
@@ -127,7 +127,7 @@ class BeautyContestLogic:
                     if diff < min_diff:
                         min_diff = diff
                 
-                # Gunakan toleransi kecil untuk perbandingan float
+                # Toleransi floating point
                 round_winners = [p for p in valid_candidates if abs(abs(target - p.last_choice) - min_diff) < 0.000001]
                 winners.extend(round_winners)
                 
@@ -137,9 +137,8 @@ class BeautyContestLogic:
 
                 # --- RULE: 3 PLAYERS OR LESS (Exact Match Bonus) ---
                 if count <= 3:
-                    # Pembulatan ke integer terdekat hanya untuk cek Critical Hit
+                    # Rounding ke integer terdekat hanya untuk cek Critical Hit
                     rounded_target = round(target)
-                    
                     is_exact = any(p.last_choice == rounded_target for p in winners)
                     
                     if is_exact:
@@ -147,7 +146,6 @@ class BeautyContestLogic:
                         special_event_log.append(f"CRITICAL HIT! Tepat sasaran {rounded_target}!")
                         special_event_log.append("Penalti yang kalah menjadi -2!")
 
-        # --- TERAPKAN HASIL ---
         for p in losers:
             p.score -= current_penalty
             if p.score <= config.ELIMINATION_THRESHOLD:
