@@ -6,66 +6,75 @@ from game_logic import BeautyContestLogic
 import config
 
 
-class Player:
-    def __init__(self, pid, name, ws):
-        self.id = pid
-        self.name = name
-        self.ws = ws
-
-
 class Room:
-    def __init__(self, code, host_id):
+    def __init__(self, code, host_id, single_player=False, bot_count=0):
         self.code = code
         self.host_id = host_id
-        self.players = {}  # pid -> Player (insertion order)
+        self.single_player = single_player
+        self.bot_count = bot_count
+        self.players = {}  # pid -> name (humans) ws stored separately
+        self.player_ws = {}  # pid -> websocket
+        self.bots = []  # list of {"id":..., "name":...}
         self.game = None
         self.state = "lobby"  # lobby | playing | result
-        self.submissions = {}  # pid -> number
+        self.submissions = {}  # pid -> number (humans and bots)
         self.current_results = None
         self.pid_to_gameid = {}
         self.round_number = 0
         self.lock = asyncio.Lock()
 
     def add_player(self, pid, name, ws):
-        if len(self.players) >= 10:
+        if len(self.players) + len(self.bots) >= 10:
             return False
-        self.players[pid] = Player(pid, name, ws)
+        self.players[pid] = name
+        self.player_ws[pid] = ws
         return True
+
+    def setup_bots(self):
+        # call after host added, before game start; creates bot entries
+        self.bots = []
+        start_idx = len(self.players) + 1  # 1-based game ids; host is 1
+        # Actually bots appended after humans in game players order
+        for i in range(self.bot_count):
+            self.bots.append({"id": f"bot-{i+1}", "name": f"Bot {i+1}"})
 
     def remove_player(self, pid):
         self.players.pop(pid, None)
+        self.player_ws.pop(pid, None)
         if pid == self.host_id and self.players:
             self.host_id = next(iter(self.players))
 
+    def all_participant_ids(self):
+        return list(self.players.keys()) + [b["id"] for b in self.bots]
+
+    def participant_name(self, pid):
+        if pid in self.players:
+            return self.players[pid]
+        for b in self.bots:
+            if b["id"] == pid:
+                return b["name"]
+        return "?"
+
+    def is_bot(self, pid):
+        return pid.startswith("bot-")
+
     def player_list(self):
-        return [
-            {"id": p.id, "name": p.name, "isHost": p.id == self.host_id}
-            for p in self.players.values()
-        ]
+        out = []
+        for pid, name in self.players.items():
+            out.append({"id": pid, "name": name, "isHost": pid == self.host_id, "isBot": False})
+        for b in self.bots:
+            out.append({"id": b["id"], "name": b["name"], "isHost": False, "isBot": True})
+        return out
 
     async def broadcast(self, msg):
         dead = []
-        for pid, p in list(self.players.items()):
+        for pid, ws in list(self.player_ws.items()):
             try:
-                await p.ws.send_json(msg)
+                await ws.send_json(msg)
             except Exception:
                 dead.append(pid)
         for pid in dead:
             self.remove_player(pid)
-
-    def start_game(self):
-        names = [p.name for p in self.players.values()]
-        pids = list(self.players.keys())
-        self.game = BeautyContestLogic(len(names), single_player_mode=False, player_names=names)
-        self.pid_to_gameid = {pid: i + 1 for i, pid in enumerate(pids)}
-        self.state = "playing"
-        self.submissions = {}
-        self.current_results = None
-        self.round_number = 1
-
-    def all_submitted(self):
-        active = [pid for pid in self.players if not self._is_eliminated(pid)]
-        return len(active) > 0 and all(pid in self.submissions for pid in active)
 
     def _is_eliminated(self, pid):
         gid = self.pid_to_gameid.get(pid)
@@ -76,8 +85,44 @@ class Room:
                 return p.is_eliminated
         return False
 
+    def active_ids(self):
+        ids = []
+        for pid in self.players:
+            if not self._is_eliminated(pid):
+                ids.append(pid)
+        for b in self.bots:
+            if not self._is_eliminated(b["id"]):
+                ids.append(b["id"])
+        return ids
+
+    def start_game(self):
+        if self.single_player and not self.bots:
+            self.setup_bots()
+        names = [self.players[pid] for pid in self.players] + [b["name"] for b in self.bots]
+        pids = list(self.players.keys()) + [b["id"] for b in self.bots]
+        self.game = BeautyContestLogic(len(names), single_player_mode=False, player_names=names)
+        self.pid_to_gameid = {pid: i + 1 for i, pid in enumerate(pids)}
+        self.state = "playing"
+        self.submissions = {}
+        self.current_results = None
+        self.round_number = 1
+        # auto-submit bots
+        self._submit_bots()
+
+    def _submit_bots(self):
+        for bid in [b["id"] for b in self.bots]:
+            if self._is_eliminated(bid):
+                continue
+            if bid in self.submissions:
+                continue
+            self.submissions[bid] = float(random.randint(0, 100))
+
+    def all_submitted(self):
+        active = self.active_ids()
+        return len(active) > 0 and all(pid in self.submissions for pid in active)
+
     def submit(self, pid, value):
-        if pid not in self.players:
+        if pid not in self.players and not self.is_bot(pid):
             return False
         if self._is_eliminated(pid):
             return False
@@ -85,17 +130,14 @@ class Room:
 
     def calculate(self):
         game = self.game
-        # set last_choice for all active players from submissions
         for pid, val in self.submissions.items():
             gid = self.pid_to_gameid.get(pid)
             for p in game.players:
                 if p.id == gid:
                     p.last_choice = val
-        # ensure any missing active get a default? They shouldn't be missing.
         res = game.calculate_round_results()
         self.current_results = res
         self.state = "result"
-        # build payload
         gid_to_pid = {v: k for k, v in self.pid_to_gameid.items()}
         players_payload = []
         for gp in game.players:
@@ -106,6 +148,7 @@ class Room:
                 "choice": gp.last_choice,
                 "score": gp.score,
                 "isEliminated": gp.is_eliminated,
+                "isBot": self.is_bot(pid) if pid else False,
             })
         winners_ids = [gid_to_pid.get(p.id) for p in (res["winners"] or [])]
         losers_ids = [gid_to_pid.get(p.id) for p in (res["losers"] or [])]
@@ -113,8 +156,6 @@ class Room:
         mw = game.get_match_winner()
         if mw is not None and mw != "No One":
             match_winner_pid = gid_to_pid.get(mw.id)
-        elif mw == "No One":
-            match_winner_pid = None
         payload = {
             "type": "round_result",
             "avg": res["avg"],
@@ -137,6 +178,7 @@ class Room:
         self.submissions = {}
         self.current_results = None
         self.round_number += 1
+        self._submit_bots()
 
 
 class RoomManager:
@@ -146,11 +188,11 @@ class RoomManager:
     def _gen_code(self):
         return "".join(random.choices(string.ascii_uppercase + string.digits, k=5))
 
-    def create_room(self, host_id):
+    def create_room(self, host_id, single_player=False, bot_count=0):
         code = self._gen_code()
         while code in self.rooms:
             code = self._gen_code()
-        self.rooms[code] = Room(code, host_id)
+        self.rooms[code] = Room(code, host_id, single_player=single_player, bot_count=bot_count)
         return code
 
     def get_room(self, code):
@@ -158,7 +200,7 @@ class RoomManager:
 
     def remove_empty(self, code):
         r = self.rooms.get(code)
-        if r and not r.players:
+        if r and not r.players and not r.single_player:
             del self.rooms[code]
 
 

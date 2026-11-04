@@ -1,9 +1,10 @@
 import asyncio
 import json
+import os
 import uuid
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from room_manager import manager, Room
+from room_manager import manager
 
 app = FastAPI(title="Beauty Contest Multiplayer")
 
@@ -28,12 +29,17 @@ async def websocket_endpoint(ws: WebSocket):
     room = None
     code = None
     try:
-        # first message must create/join
         raw = await ws.receive_text()
         data = json.loads(raw)
         if data.get("type") == "create_room":
             name = (data.get("name") or "Player").strip() or "Player"
-            code = manager.create_room(player_id)
+            mode = data.get("mode", "multi")
+            single = (mode == "single")
+            bot_count = int(data.get("bots", 0) or 0)
+            bot_count = max(0, min(9, bot_count))
+            if single:
+                bot_count = max(1, bot_count) if bot_count == 0 else bot_count
+            code = manager.create_room(player_id, single_player=single, bot_count=bot_count)
             room = manager.get_room(code)
             room.add_player(player_id, name, ws)
         elif data.get("type") == "join_room":
@@ -44,7 +50,11 @@ async def websocket_endpoint(ws: WebSocket):
                 await ws.send_json({"type": "error", "message": "Room not found"})
                 await ws.close()
                 return
-            if len(room.players) >= 10:
+            if room.single_player:
+                await ws.send_json({"type": "error", "message": "Single-player room"})
+                await ws.close()
+                return
+            if len(room.players) + len(room.bots) >= 10:
                 await ws.send_json({"type": "error", "message": "Room is full"})
                 await ws.close()
                 return
@@ -54,17 +64,16 @@ async def websocket_endpoint(ws: WebSocket):
             await ws.close()
             return
 
-        # acknowledge
         await ws.send_json({
             "type": "joined",
             "playerId": player_id,
             "code": code,
             "isHost": player_id == room.host_id,
             "players": room.player_list(),
+            "singlePlayer": room.single_player,
         })
         await room.broadcast({"type": "lobby_update", "players": room.player_list(), "hostId": room.host_id})
 
-        # main loop
         while True:
             raw = await ws.receive_text()
             data = json.loads(raw)
@@ -75,14 +84,15 @@ async def websocket_endpoint(ws: WebSocket):
                     if player_id != room.host_id:
                         await ws.send_json({"type": "error", "message": "Only host can start"})
                         continue
-                    if len(room.players) < 2:
+                    if len(room.players) + len(room.bots) < 2:
                         await ws.send_json({"type": "error", "message": "Need at least 2 players"})
                         continue
                     if room.state != "lobby":
                         continue
                     room.start_game()
                     await room.broadcast({"type": "game_started", "round": room.round_number})
-                    await room.broadcast({"type": "round_start", "submitted": []})
+                    # bots already submitted inside start_game; broadcast state
+                    await room.broadcast({"type": "round_start", "submitted": list(room.submissions.keys()), "round": room.round_number})
 
                 elif t == "submit":
                     if room.state != "playing":
@@ -109,13 +119,11 @@ async def websocket_endpoint(ws: WebSocket):
                         continue
                     if room.state != "result":
                         continue
-                    # check game over
                     mw = room.game.get_match_winner() if room.game else None
                     if mw is not None:
-                        # game already over; ignore
                         continue
                     room.next_round()
-                    await room.broadcast({"type": "round_start", "submitted": [], "round": room.round_number})
+                    await room.broadcast({"type": "round_start", "submitted": list(room.submissions.keys()), "round": room.round_number})
 
                 elif t == "leave":
                     break
@@ -130,14 +138,13 @@ async def websocket_endpoint(ws: WebSocket):
     finally:
         if room is not None and player_id in room.players:
             room.remove_player(player_id)
-            if room.players:
+            if room.players or room.single_player:
                 await room.broadcast({"type": "lobby_update", "players": room.player_list(), "hostId": room.host_id})
             else:
                 manager.remove_empty(code)
 
 
 if __name__ == "__main__":
-    import os
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port)

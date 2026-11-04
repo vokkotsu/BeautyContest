@@ -23,6 +23,8 @@ export default function App() {
   const [dark, setDark] = useState(() => {
     try { return localStorage.getItem("bc-dark") === "1"; } catch { return false; }
   });
+  const [mode, setMode] = useState(null); // null | 'single' | 'multi'
+  const [botCount, setBotCount] = useState(3);
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
     try { localStorage.setItem("bc-dark", dark ? "1" : "0"); } catch {}
@@ -58,7 +60,13 @@ export default function App() {
   const createRoom = () => {
     if (!name.trim()) { setError("Enter your name"); return; }
     setError("");
-    connect((ws) => ws.send(JSON.stringify({ type: "create_room", name: name.trim() })));
+    const isSingle = mode === "single";
+    connect((ws) => ws.send(JSON.stringify({
+      type: "create_room",
+      name: name.trim(),
+      mode: isSingle ? "single" : "multi",
+      bots: isSingle ? botCount : 0,
+    })));
   };
   const joinRoom = () => {
     if (!name.trim()) { setError("Enter your name"); return; }
@@ -94,24 +102,75 @@ export default function App() {
             <h1 className="text-3xl font-bold tracking-tight">Beauty Contest</h1>
             <p className="mt-2 text-sm text-gray-500">Guess 2/3 of the average. Last one standing wins.</p>
           </div>
+
+          <div className="mb-5">
+            <p className="text-sm font-medium mb-2">Game mode</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setMode("single")}
+                className={`py-2 rounded-xl font-semibold border transition-colors ${mode === "single" ? "bg-emerald-600 text-white border-emerald-600" : "bg-transparent border-gray-300 hover:border-emerald-500"}`}
+              >
+                Single Player (vs AI)
+              </button>
+              <button
+                onClick={() => setMode("multi")}
+                className={`py-2 rounded-xl font-semibold border transition-colors ${mode === "multi" ? "bg-[#663298] text-white border-[#663298]" : "bg-transparent border-gray-300 hover:border-[#663298]"}`}
+              >
+                Multiplayer (Room)
+              </button>
+            </div>
+          </div>
+
           <div className="space-y-4">
             <div>
               <label htmlFor="name" className="block text-sm font-medium mb-1">Your name</label>
               <input id="name" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter your name" />
             </div>
-            <div>
-              <label htmlFor="code" className="block text-sm font-medium mb-1">Room code (to join)</label>
-              <input id="code" className="input uppercase tracking-widest" value={joinCode} onChange={(e) => setJoinCode(e.target.value)} placeholder="ABCDE" />
-            </div>
+
+            {mode === "single" && (
+              <div>
+                <label htmlFor="bots" className="block text-sm font-medium mb-1">Number of AI opponents (1–9)</label>
+                <input
+                  id="bots"
+                  type="number"
+                  min="1"
+                  max="9"
+                  className="input"
+                  value={botCount}
+                  onChange={(e) => setBotCount(Math.max(1, Math.min(9, Number(e.target.value) || 1)))}
+                />
+              </div>
+            )}
+
+            {mode === "multi" && (
+              <div>
+                <label htmlFor="code" className="block text-sm font-medium mb-1">Room code (to join)</label>
+                <input id="code" className="input uppercase tracking-widest" value={joinCode} onChange={(e) => setJoinCode(e.target.value)} placeholder="ABCDE" />
+              </div>
+            )}
+
             {error && <div role="alert" className="text-sm text-red-600">{error}</div>}
-            <div className="flex gap-3 pt-2">
-              <button onClick={createRoom} className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl font-semibold hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
-                Create Room
+
+            {mode === "single" && (
+              <button onClick={createRoom} className="w-full bg-emerald-600 text-white py-2.5 rounded-xl font-semibold hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+                Start Single Player
               </button>
-              <button onClick={joinRoom} className="flex-1 bg-[#663298] text-white py-2.5 rounded-xl font-semibold hover:bg-[#552a80] focus:outline-none focus:ring-2 focus:ring-[#663298]/40">
-                Join Room
-              </button>
-            </div>
+            )}
+
+            {mode === "multi" && (
+              <div className="flex gap-3 pt-2">
+                <button onClick={createRoom} className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl font-semibold hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+                  Create Room
+                </button>
+                <button onClick={joinRoom} className="flex-1 bg-[#663298] text-white py-2.5 rounded-xl font-semibold hover:bg-[#552a80] focus:outline-none focus:ring-2 focus:ring-[#663298]/40">
+                  Join Room
+                </button>
+              </div>
+            )}
+
+            {!mode && (
+              <p className="text-center text-sm text-gray-400 pt-2">Choose a mode to continue</p>
+            )}
           </div>
         </div>
       </div>
