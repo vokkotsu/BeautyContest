@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 :root {
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
@@ -80,4 +81,21 @@ button:active {
   outline: none;
   border-color: #2f6f5e;
   box-shadow: 0 0 0 3px rgba(47,111,94,0.15);
+}
+
+.dark body {
+  background: #1a1625;
+  color: #e8e4f0;
+}
+
+.dark .card {
+  background: #2a2438;
+  border-color: #3d3550;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.4);
+}
+
+.dark .input {
+  background: #1f1a2e;
+  border-color: #3d3550;
+  color: #e8e4f0;
 }

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
 const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:8000/ws";
 
@@ -20,6 +20,13 @@ export default function App() {
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
   const [submittedSelf, setSubmittedSelf] = useState(false);
+  const [dark, setDark] = useState(() => {
+    try { return localStorage.getItem("bc-dark") === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", dark);
+    try { localStorage.setItem("bc-dark", dark ? "1" : "0"); } catch {}
+  }, [dark]);
 
   const connect = useCallback((onOpen) => {
     const ws = new WebSocket(WS_URL);
@@ -74,7 +81,14 @@ export default function App() {
 
   if (screen === "landing") {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 py-10">
+      <div className="min-h-screen flex items-center justify-center px-4 py-10 relative">
+        <button
+          onClick={() => setDark((d) => !d)}
+          aria-label="Toggle dark mode"
+          className="absolute top-4 right-4 card px-3 py-1.5 text-sm font-medium hover:opacity-80"
+        >
+          {dark ? "Light" : "Dark"}
+        </button>
         <div className="card animate-pop-in w-full max-w-md p-8">
           <div className="mb-6 text-center">
             <h1 className="text-3xl font-bold tracking-tight">Beauty Contest</h1>
@@ -94,7 +108,7 @@ export default function App() {
               <button onClick={createRoom} className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl font-semibold hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
                 Create Room
               </button>
-              <button onClick={joinRoom} className="flex-1 bg-slate-800 text-white py-2.5 rounded-xl font-semibold hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-500/40">
+              <button onClick={joinRoom} className="flex-1 bg-[#663298] text-white py-2.5 rounded-xl font-semibold hover:bg-[#552a80] focus:outline-none focus:ring-2 focus:ring-[#663298]/40">
                 Join Room
               </button>
             </div>
@@ -106,12 +120,19 @@ export default function App() {
 
   if (screen === "lobby") {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 py-10">
+      <div className="min-h-screen flex items-center justify-center px-4 py-10 relative">
+        <button
+          onClick={() => setDark((d) => !d)}
+          aria-label="Toggle dark mode"
+          className="absolute top-4 right-4 card px-3 py-1.5 text-sm font-medium hover:opacity-80"
+        >
+          {dark ? "Light" : "Dark"}
+        </button>
         <div className="card animate-pop-in w-full max-w-md p-8">
           <div className="mb-6 text-center">
             <h1 className="text-2xl font-bold tracking-tight">Lobby</h1>
             <p className="mt-1 text-sm text-gray-500">
-              Room code: <span className="font-mono font-bold tracking-widest text-slate-900">{roomCode}</span>
+              Room code: <span className="font-mono font-bold tracking-widest text-slate-900 dark:text-white">{roomCode}</span>
             </p>
           </div>
           <div className="mb-5">
@@ -157,7 +178,16 @@ export default function App() {
         <div className="md:col-span-2 card p-5 animate-fade-in">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold">Round {round}</h2>
-            <span className="text-xs font-mono text-gray-400">Room {roomCode}</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setDark((d) => !d)}
+                aria-label="Toggle dark mode"
+                className="card px-2.5 py-1 text-xs font-medium hover:opacity-80"
+              >
+                {dark ? "Light" : "Dark"}
+              </button>
+              <span className="text-xs font-mono text-gray-400">Room {roomCode}</span>
+            </div>
           </div>
 
           {!submittedSelf && !result && (
@@ -234,7 +264,7 @@ export default function App() {
                 </div>
               )}
               {!gameOver && isHost && (
-                <button onClick={nextRound} className="mt-4 bg-slate-800 text-white px-5 py-2 rounded-xl font-semibold hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-500/40">
+                <button onClick={nextRound} className="mt-4 bg-[#663298] text-white px-5 py-2 rounded-xl font-semibold hover:bg-[#552a80] focus:outline-none focus:ring-2 focus:ring-[#663298]/40">
                   Next Round
                 </button>
               )}
