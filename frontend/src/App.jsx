@@ -100,7 +100,7 @@ export default function App() {
         <div className="card animate-pop-in w-full max-w-md p-8">
           <div className="mb-6 text-center">
             <h1 className="text-3xl font-bold tracking-tight">Beauty Contest</h1>
-            <p className="mt-2 text-sm text-gray-500">Guess 2/3 of the average. Last one standing wins.</p>
+            <p className="mt-2 text-sm text-gray-500 dark:text-[#a89fc0]">Guess 2/3 of the average. Last one standing wins.</p>
           </div>
 
           <div className="mb-5">
@@ -169,7 +169,7 @@ export default function App() {
             )}
 
             {!mode && (
-              <p className="text-center text-sm text-gray-400 pt-2">Choose a mode to continue</p>
+              <p className="text-center text-sm text-gray-400 dark:text-[#a89fc0] pt-2">Choose a mode to continue</p>
             )}
           </div>
         </div>
@@ -190,12 +190,12 @@ export default function App() {
         <div className="card animate-pop-in w-full max-w-md p-8">
           <div className="mb-6 text-center">
             <h1 className="text-2xl font-bold tracking-tight">Lobby</h1>
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-gray-500 dark:text-[#a89fc0]">
               Room code: <span className="font-mono font-bold tracking-widest text-slate-900 dark:text-white">{roomCode}</span>
             </p>
           </div>
           <div className="mb-5">
-            <h2 className="font-semibold text-sm text-gray-600 mb-2">Players ({players.length}/10)</h2>
+            <h2 className="font-semibold text-sm text-gray-600 dark:text-[#a89fc0] mb-2">Players ({players.length}/10)</h2>
             <ul className="space-y-2">
               {players.map((p, i) => (
                 <li
@@ -204,7 +204,7 @@ export default function App() {
                   style={{ animationDelay: `${i * 40}ms` }}
                 >
                   <span className="font-medium">
-                    {p.name} {p.id === playerId && <span className="text-gray-400">(you)</span>}
+                    {p.name} {p.id === playerId && <span className="text-gray-400 dark:text-[#a89fc0]">(you)</span>}
                   </span>
                   {p.isHost && <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-semibold">HOST</span>}
                 </li>
@@ -221,7 +221,7 @@ export default function App() {
               Start Game
             </button>
           ) : (
-            <p className="text-center text-gray-500 text-sm">Waiting for host to start…</p>
+            <p className="text-center text-gray-500 dark:text-[#a89fc0] text-sm">Waiting for host to start…</p>
           )}
         </div>
       </div>
@@ -245,7 +245,7 @@ export default function App() {
               >
                 {dark ? "Light" : "Dark"}
               </button>
-              <span className="text-xs font-mono text-gray-400">Room {roomCode}</span>
+              <span className="text-xs font-mono text-gray-400 dark:text-[#a89fc0]">Room {roomCode}</span>
             </div>
           </div>
 
@@ -279,13 +279,13 @@ export default function App() {
           )}
 
           <div className="mb-4">
-            <h3 className="text-sm font-semibold text-gray-600 mb-2">Submitted ({submitted.length}/{players.length})</h3>
+            <h3 className="text-sm font-semibold text-gray-600 dark:text-[#a89fc0] mb-2">Submitted ({submitted.length}/{players.length})</h3>
             <div className="flex flex-wrap gap-2">
               {players.map((p) => (
                 <span
                   key={p.id}
                   className={`px-3 py-1 rounded-full text-xs font-medium transition-colors duration-200 ${
-                    submittedSet.has(p.id) ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-500"
+                    submittedSet.has(p.id) ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-500 dark:text-[#a89fc0]"
                   }`}
                 >
                   {p.name} {submittedSet.has(p.id) ? "✓" : "…"}
@@ -328,7 +328,7 @@ export default function App() {
                 </button>
               )}
               {!gameOver && !isHost && (
-                <p className="text-gray-500 text-sm mt-4">Waiting for host to start next round…</p>
+                <p className="text-gray-500 dark:text-[#a89fc0] text-sm mt-4">Waiting for host to start next round…</p>
               )}
             </div>
           )}
@@ -338,7 +338,7 @@ export default function App() {
           <h3 className="font-bold mb-3">Scoreboard</h3>
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-100 text-gray-500">
+              <tr className="border-b border-gray-100 text-gray-500 dark:text-[#a89fc0]">
                 <th className="text-left py-1.5 font-medium">Name</th>
                 <th className="text-center py-1.5 font-medium">Pick</th>
                 <th className="text-center py-1.5 font-medium">Score</th>
@@ -350,7 +350,7 @@ export default function App() {
                   key={p.id}
                   className={`border-b border-gray-50 last:border-0 transition-colors ${p.isEliminated ? "bg-red-50 text-red-600" : ""}`}
                 >
-                  <td className="py-2 font-medium">{p.name} {p.id === playerId && <span className="text-gray-400">(you)</span>}</td>
+                  <td className="py-2 font-medium">{p.name} {p.id === playerId && <span className="text-gray-400 dark:text-[#a89fc0]">(you)</span>}</td>
                   <td className="text-center py-2">{p.isEliminated ? "—" : (p.choice != null ? Math.round(p.choice) : "—")}</td>
                   <td className="text-center py-2 font-semibold">{p.isEliminated ? "ELIM" : p.score}</td>
                 </tr>
