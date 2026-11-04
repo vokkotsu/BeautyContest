@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { BeautyContestLogic } from "./gameLogic";
 
 const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:8000/ws";
 
@@ -25,6 +26,9 @@ export default function App() {
   });
   const [mode, setMode] = useState(null); // null | 'single' | 'multi'
   const [botCount, setBotCount] = useState(3);
+  const [isSingle, setIsSingle] = useState(false);
+  const logicRef = useRef(null);
+  const idMapRef = useRef([]);
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
     try { localStorage.setItem("bc-dark", dark ? "1" : "0"); } catch {}
@@ -61,11 +65,22 @@ export default function App() {
     if (!name.trim()) { setError("Enter your name"); return; }
     setError("");
     const isSingle = mode === "single";
+    if (isSingle) {
+      const bots = Array.from({ length: botCount }, (_, i) => ({ id: `bot-${i + 1}`, name: `Bot ${i + 1}`, isBot: true }));
+      const human = { id: "me", name: name.trim(), isBot: false, isHost: true };
+      setIsSingle(true);
+      setPlayers([human, ...bots]);
+      setPlayerId("me");
+      setIsHost(true);
+      setRoomCode("LOCAL");
+      setScreen("lobby");
+      return;
+    }
     connect((ws) => ws.send(JSON.stringify({
       type: "create_room",
       name: name.trim(),
-      mode: isSingle ? "single" : "multi",
-      bots: isSingle ? botCount : 0,
+      mode: "multi",
+      bots: 0,
     })));
   };
   const joinRoom = () => {
@@ -74,16 +89,112 @@ export default function App() {
     setError("");
     connect((ws) => ws.send(JSON.stringify({ type: "join_room", code: joinCode.trim(), name: name.trim() })));
   };
-  const startGame = () => wsRef.current?.send(JSON.stringify({ type: "start_game" }));
+  const startGame = () => {
+    if (isSingle) {
+      const names = players.map((p) => p.name);
+      const ids = players.map((p) => p.id);
+      const logic = new BeautyContestLogic(names.length, names);
+      logicRef.current = logic;
+      idMapRef.current = ids;
+      // auto-submit bots
+      const submittedIds = [];
+      for (let i = 1; i < ids.length; i++) {
+        if (!logic.players[i].isEliminated) {
+          const choice = Math.floor(Math.random() * 101);
+          logic.players[i].lastChoice = choice;
+          submittedIds.push(ids[i]);
+        }
+      }
+      const gamePlayers = logic.players.map((p, i) => ({
+        id: ids[i],
+        name: p.name,
+        score: p.score,
+        isEliminated: p.isEliminated,
+        choice: p.lastChoice,
+        isBot: i > 0,
+      }));
+      setPlayers(gamePlayers);
+      setSubmitted(submittedIds);
+      setSubmittedSelf(false);
+      setResult(null);
+      setGameOver(false);
+      setMatchWinnerId(null);
+      setRound(1);
+      setScreen("game");
+      return;
+    }
+    wsRef.current?.send(JSON.stringify({ type: "start_game" }));
+  };
   const submit = () => {
     const v = parseFloat(value);
     if (isNaN(v)) { setError("Enter a number 0-100"); return; }
     if (v < 0 || v > 100) { setError("Number must be 0-100"); return; }
     setError("");
+    if (isSingle) {
+      if (submittedSelf) return;
+      const logic = logicRef.current;
+      const ids = idMapRef.current;
+      logic.players[0].lastChoice = v;
+      const newSubmitted = [...submitted, "me"];
+      setSubmitted(newSubmitted);
+      setSubmittedSelf(true);
+      // check all active submitted
+      const activeIds = ids.filter((id, i) => !logic.players[i].isEliminated);
+      if (activeIds.every((id) => newSubmitted.includes(id))) {
+        const res = logic.calculateRoundResults();
+        const updated = logic.players.map((p, i) => ({
+          id: ids[i],
+          name: p.name,
+          score: p.score,
+          isEliminated: p.isEliminated,
+          choice: p.lastChoice,
+          isBot: i > 0,
+        }));
+        setPlayers(updated);
+        const mw = logic.getMatchWinner();
+        const matchWinnerId = mw && mw !== "No One" ? ids[mw.id - 1] : null;
+        const gameOver = matchWinnerId !== null || mw === "No One";
+        setResult({
+          type: "round_result",
+          avg: res.avg,
+          target: res.target,
+          logs: res.logs,
+          activeCount: res.activeCount,
+          players: updated,
+          winnerIds: (res.winners || []).map((p) => ids[p.id - 1]),
+          loserIds: (res.losers || []).map((p) => ids[p.id - 1]),
+          matchWinnerId,
+          gameOver,
+        });
+        setGameOver(gameOver);
+        setMatchWinnerId(matchWinnerId);
+      }
+      return;
+    }
     wsRef.current?.send(JSON.stringify({ type: "submit", value: v }));
     setSubmittedSelf(true);
   };
-  const nextRound = () => wsRef.current?.send(JSON.stringify({ type: "next_round" }));
+  const nextRound = () => {
+    if (isSingle) {
+      const logic = logicRef.current;
+      const ids = idMapRef.current;
+      // reset round (no-op for logic, just clear submissions)
+      const submittedIds = [];
+      for (let i = 1; i < ids.length; i++) {
+        if (!logic.players[i].isEliminated) {
+          const choice = Math.floor(Math.random() * 101);
+          logic.players[i].lastChoice = choice;
+          submittedIds.push(ids[i]);
+        }
+      }
+      setSubmitted(submittedIds);
+      setSubmittedSelf(false);
+      setResult(null);
+      setRound((r) => r + 1);
+      return;
+    }
+    wsRef.current?.send(JSON.stringify({ type: "next_round" }));
+  };
 
   const submittedSet = new Set(submitted);
 
