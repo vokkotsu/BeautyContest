@@ -192,6 +192,13 @@ export default function App() {
             <h1 className="text-2xl font-bold tracking-tight">Lobby</h1>
             <p className="mt-1 text-sm text-gray-500 dark:text-[#a89fc0]">
               Room code: <span className="font-mono font-bold tracking-widest text-slate-900 dark:text-white">{roomCode}</span>
+              <button
+                onClick={() => { try { navigator.clipboard.writeText(roomCode); } catch {} }}
+                className="ml-2 text-xs text-[#663298] hover:underline focus:outline-none"
+                aria-label="Copy room code"
+              >
+                Copy
+              </button>
             </p>
           </div>
           <div className="mb-5">
