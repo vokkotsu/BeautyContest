@@ -352,10 +352,11 @@ export default function App() {
               </tr>
             </thead>
             <tbody>
-              {gamePlayers.map((p) => (
+              {gamePlayers.map((p, i) => (
                 <tr
                   key={p.id}
-                  className={`border-b border-gray-50 last:border-0 transition-colors ${p.isEliminated ? "bg-red-50 text-red-600" : ""}`}
+                  className={`border-b border-gray-50 last:border-0 transition-colors animate-fade-in ${p.isEliminated ? "bg-red-50 text-red-600" : ""}`}
+                  style={{ animationDelay: `${i * 50}ms` }}
                 >
                   <td className="py-2 font-medium">{p.name} {p.id === playerId && <span className="text-gray-400 dark:text-[#a89fc0]">(you)</span>}</td>
                   <td className="text-center py-2">{p.isEliminated ? "—" : (p.choice != null ? Math.round(p.choice) : "—")}</td>
