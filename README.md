@@ -9,18 +9,19 @@ Full-stack real-time multiplayer version of the Beauty Contest game.
 
 ## Run
 
-Backend:
+Install dependencies once:
+
 ```bash
-cd backend
-pip install -r requirements.txt
-python -m uvicorn main:app --reload --port 8000
+cd backend && pip install -r requirements.txt
+cd ../frontend && npm install --include=dev
 ```
 
-Frontend:
+Then start everything from the project root with a single command:
+
 ```bash
-cd frontend
-npm install --include=dev
-npm run dev
+python run.py
 ```
 
-Open the frontend URL (default http://localhost:5173) and create/join a room.
+This launches the backend (http://localhost:8000) and frontend (http://localhost:5173) together. Press Ctrl+C to stop both.
+
+Open the frontend URL and create/join a room.
