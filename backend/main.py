@@ -42,6 +42,8 @@ async def websocket_endpoint(ws: WebSocket):
             code = manager.create_room(player_id, single_player=single, bot_count=bot_count)
             room = manager.get_room(code)
             room.add_player(player_id, name, ws)
+            if single:
+                room.setup_bots()
         elif data.get("type") == "join_room":
             name = (data.get("name") or "Player").strip() or "Player"
             code = (data.get("code") or "").strip().upper()
@@ -84,6 +86,8 @@ async def websocket_endpoint(ws: WebSocket):
                     if player_id != room.host_id:
                         await ws.send_json({"type": "error", "message": "Only host can start"})
                         continue
+                    if room.single_player and not room.bots:
+                        room.setup_bots()
                     if len(room.players) + len(room.bots) < 2:
                         await ws.send_json({"type": "error", "message": "Need at least 2 players"})
                         continue
