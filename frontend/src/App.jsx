@@ -262,7 +262,7 @@ export default function App() {
                   className={`border-b border-gray-50 last:border-0 transition-colors ${p.isEliminated ? "bg-red-50 text-red-600" : ""}`}
                 >
                   <td className="py-2 font-medium">{p.name} {p.id === playerId && <span className="text-gray-400">(you)</span>}</td>
-                  <td className="text-center py-2">{p.choice != null ? Math.round(p.choice) : "—"}</td>
+                  <td className="text-center py-2">{p.isEliminated ? "—" : (p.choice != null ? Math.round(p.choice) : "—")}</td>
                   <td className="text-center py-2 font-semibold">{p.isEliminated ? "ELIM" : p.score}</td>
                 </tr>
               ))}
