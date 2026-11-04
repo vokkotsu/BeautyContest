@@ -1,11 +1,83 @@
 @import "tailwindcss";
 
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
-  font-family: system-ui, sans-serif;
-  background: #f0f0f0;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: #f4f1ea;
+  color: #1f2937;
 }
 
 #root {
   min-height: 100vh;
+}
+
+button {
+  transition: transform 160ms var(--ease-out);
+}
+
+button:active {
+  transform: scale(0.97);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  button:hover {
+    filter: brightness(1.05);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-fade-in {
+  animation: fade-in 280ms var(--ease-out) both;
+}
+
+.animate-pop-in {
+  animation: pop-in 220ms var(--ease-out) both;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid #e7e2d8;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.06);
+}
+
+.input {
+  width: 100%;
+  border: 1px solid #d6d0c4;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 15px;
+  background: #faf8f3;
+  transition: border-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+}
+
+.input:focus {
+  outline: none;
+  border-color: #2f6f5e;
+  box-shadow: 0 0 0 3px rgba(47,111,94,0.15);
 }

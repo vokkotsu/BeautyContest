@@ -74,21 +74,30 @@ export default function App() {
 
   if (screen === "landing") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
-          <h1 className="text-2xl font-bold mb-6 text-center">Beauty Contest</h1>
-          <div className="mb-4">
-            <label className="block text-sm mb-1">Your Name</label>
-            <input className="w-full border rounded px-3 py-2" value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter name" />
+      <div className="min-h-screen flex items-center justify-center px-4 py-10">
+        <div className="card animate-pop-in w-full max-w-md p-8">
+          <div className="mb-6 text-center">
+            <h1 className="text-3xl font-bold tracking-tight">Beauty Contest</h1>
+            <p className="mt-2 text-sm text-gray-500">Guess 2/3 of the average. Last one standing wins.</p>
           </div>
-          <div className="mb-4">
-            <label className="block text-sm mb-1">Room Code (for joining)</label>
-            <input className="w-full border rounded px-3 py-2" value={joinCode} onChange={(e) => setJoinCode(e.target.value)} placeholder="ABCDE" />
-          </div>
-          {error && <div className="text-red-500 text-sm mb-3">{error}</div>}
-          <div className="flex gap-3">
-            <button onClick={createRoom} className="flex-1 bg-green-500 text-white py-2 rounded font-semibold hover:bg-green-600">Create Room</button>
-            <button onClick={joinRoom} className="flex-1 bg-blue-500 text-white py-2 rounded font-semibold hover:bg-blue-600">Join Room</button>
+          <div className="space-y-4">
+            <div>
+              <label htmlFor="name" className="block text-sm font-medium mb-1">Your name</label>
+              <input id="name" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter your name" />
+            </div>
+            <div>
+              <label htmlFor="code" className="block text-sm font-medium mb-1">Room code (to join)</label>
+              <input id="code" className="input uppercase tracking-widest" value={joinCode} onChange={(e) => setJoinCode(e.target.value)} placeholder="ABCDE" />
+            </div>
+            {error && <div role="alert" className="text-sm text-red-600">{error}</div>}
+            <div className="flex gap-3 pt-2">
+              <button onClick={createRoom} className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl font-semibold hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+                Create Room
+              </button>
+              <button onClick={joinRoom} className="flex-1 bg-slate-800 text-white py-2.5 rounded-xl font-semibold hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-500/40">
+                Join Room
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -97,26 +106,42 @@ export default function App() {
 
   if (screen === "lobby") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
-          <h1 className="text-2xl font-bold mb-2 text-center">Lobby</h1>
-          <p className="text-center text-gray-500 mb-4">Room Code: <span className="font-mono font-bold text-black">{roomCode}</span></p>
-          <div className="mb-4">
-            <h2 className="font-semibold mb-2">Players ({players.length}/10)</h2>
-            <ul className="space-y-1">
-              {players.map((p) => (
-                <li key={p.id} className="flex justify-between border-b py-1">
-                  <span>{p.name} {p.id === playerId && "(you)"}</span>
-                  {p.isHost && <span className="text-xs bg-yellow-200 px-2 py-0.5 rounded">HOST</span>}
+      <div className="min-h-screen flex items-center justify-center px-4 py-10">
+        <div className="card animate-pop-in w-full max-w-md p-8">
+          <div className="mb-6 text-center">
+            <h1 className="text-2xl font-bold tracking-tight">Lobby</h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Room code: <span className="font-mono font-bold tracking-widest text-slate-900">{roomCode}</span>
+            </p>
+          </div>
+          <div className="mb-5">
+            <h2 className="font-semibold text-sm text-gray-600 mb-2">Players ({players.length}/10)</h2>
+            <ul className="space-y-2">
+              {players.map((p, i) => (
+                <li
+                  key={p.id}
+                  className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 animate-fade-in"
+                  style={{ animationDelay: `${i * 40}ms` }}
+                >
+                  <span className="font-medium">
+                    {p.name} {p.id === playerId && <span className="text-gray-400">(you)</span>}
+                  </span>
+                  {p.isHost && <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-semibold">HOST</span>}
                 </li>
               ))}
             </ul>
           </div>
-          {error && <div className="text-red-500 text-sm mb-3">{error}</div>}
+          {error && <div role="alert" className="text-sm text-red-600 mb-3">{error}</div>}
           {isHost ? (
-            <button onClick={startGame} disabled={players.length < 2} className="w-full bg-green-500 text-white py-2 rounded font-semibold hover:bg-green-600 disabled:opacity-50">Start Game</button>
+            <button
+              onClick={startGame}
+              disabled={players.length < 2}
+              className="w-full bg-emerald-600 text-white py-2.5 rounded-xl font-semibold hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+            >
+              Start Game
+            </button>
           ) : (
-            <p className="text-center text-gray-500">Waiting for host to start...</p>
+            <p className="text-center text-gray-500 text-sm">Waiting for host to start…</p>
           )}
         </div>
       </div>
@@ -127,34 +152,53 @@ export default function App() {
   const winnerNames = result ? result.players.filter((p) => result.winnerIds?.includes(p.id)).map((p) => p.name) : [];
 
   return (
-    <div className="min-h-screen bg-gray-100 p-4">
-      <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="md:col-span-2 bg-white p-4 rounded-xl shadow">
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="font-bold text-lg">Round {round}</h2>
-            <span className="text-sm text-gray-500">Room {roomCode}</span>
+    <div className="min-h-screen px-4 py-6">
+      <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div className="md:col-span-2 card p-5 animate-fade-in">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold">Round {round}</h2>
+            <span className="text-xs font-mono text-gray-400">Room {roomCode}</span>
           </div>
 
           {!submittedSelf && !result && (
-            <div className="mb-4">
-              <label className="block text-sm mb-1">Your number (0-100)</label>
+            <div className="mb-5">
+              <label htmlFor="guess" className="block text-sm font-medium mb-1">Your number (0–100)</label>
               <div className="flex gap-2">
-                <input type="number" min="0" max="100" className="flex-1 border rounded px-3 py-2" value={value} onChange={(e) => setValue(e.target.value)} />
-                <button onClick={submit} className="bg-green-500 text-white px-4 py-2 rounded font-semibold hover:bg-green-600">Submit</button>
+                <input
+                  id="guess"
+                  type="number"
+                  min="0"
+                  max="100"
+                  className="input"
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+                />
+                <button onClick={submit} className="bg-emerald-600 text-white px-5 py-2 rounded-xl font-semibold hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+                  Submit
+                </button>
               </div>
-              {error && <div className="text-red-500 text-sm mt-2">{error}</div>}
+              {error && <div role="alert" className="text-sm text-red-600 mt-2">{error}</div>}
             </div>
           )}
 
           {submittedSelf && !result && (
-            <p className="text-green-600 font-semibold mb-3">Submitted! Waiting for others...</p>
+            <div className="mb-4 flex items-center gap-2 text-emerald-700 font-medium animate-pop-in">
+              <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+              Submitted! Waiting for others…
+            </div>
           )}
 
-          <div className="mb-3">
-            <h3 className="font-semibold text-sm mb-1">Submitted ({submitted.length}/{players.length})</h3>
+          <div className="mb-4">
+            <h3 className="text-sm font-semibold text-gray-600 mb-2">Submitted ({submitted.length}/{players.length})</h3>
             <div className="flex flex-wrap gap-2">
               {players.map((p) => (
-                <span key={p.id} className={`px-2 py-1 rounded text-xs ${submittedSet.has(p.id) ? "bg-green-200" : "bg-gray-200"}`}>
+                <span
+                  key={p.id}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors duration-200 ${
+                    submittedSet.has(p.id) ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-500"
+                  }`}
+                >
                   {p.name} {submittedSet.has(p.id) ? "✓" : "…"}
                 </span>
               ))}
@@ -162,39 +206,64 @@ export default function App() {
           </div>
 
           {result && (
-            <div className="mt-4 border-t pt-3">
+            <div className="mt-2 border-t border-gray-100 pt-4 animate-fade-in">
               <h3 className="font-bold mb-2">Round Results</h3>
-              <p className="text-sm">Average: <b>{typeof result.avg === "number" ? result.avg.toFixed(2) : result.avg}</b> | Target (×0.8): <b>{typeof result.target === "number" ? result.target.toFixed(2) : result.target}</b></p>
+              <p className="text-sm text-gray-700">
+                Average: <b>{typeof result.avg === "number" ? result.avg.toFixed(2) : result.avg}</b>
+                <span className="mx-2 text-gray-300">|</span>
+                Target (×0.8): <b>{typeof result.target === "number" ? result.target.toFixed(2) : result.target}</b>
+              </p>
               {result.logs?.length > 0 && (
-                <ul className="text-red-600 text-sm mt-1">{result.logs.map((l, i) => <li key={i}>&gt;&gt; {l}</li>)}</ul>
+                <ul className="text-red-600 text-sm mt-2 space-y-0.5">
+                  {result.logs.map((l, i) => <li key={i}>&gt;&gt; {l}</li>)}
+                </ul>
               )}
-              {winnerNames.length > 0 && <p className="text-green-600 font-bold mt-1">WINNER: {winnerNames.join(", ")}</p>}
-              {(!winnerNames.length) && (result.winnerIds?.length === 0) && <p className="text-blue-600 font-bold mt-1">No Winner!</p>}
+              {winnerNames.length > 0 && (
+                <p className="text-emerald-600 font-bold mt-2 animate-pop-in">WINNER: {winnerNames.join(", ")}</p>
+              )}
+              {(!winnerNames.length) && (result.winnerIds?.length === 0) && (
+                <p className="text-blue-600 font-bold mt-2">No Winner!</p>
+              )}
               {gameOver && (
-                <div className="mt-3 p-3 bg-yellow-100 rounded">
-                  <p className="font-bold">
-                    {matchWinnerId ? `Game Over! ${gamePlayers.find((p) => p.id === matchWinnerId)?.name} wins the match!` : "Game Over! No winner."}
+                <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl animate-pop-in">
+                  <p className="font-bold text-amber-900">
+                    {matchWinnerId
+                      ? `Game Over! ${gamePlayers.find((p) => p.id === matchWinnerId)?.name} wins the match!`
+                      : "Game Over! No winner."}
                   </p>
                 </div>
               )}
               {!gameOver && isHost && (
-                <button onClick={nextRound} className="mt-3 bg-blue-500 text-white px-4 py-2 rounded font-semibold hover:bg-blue-600">Next Round</button>
+                <button onClick={nextRound} className="mt-4 bg-slate-800 text-white px-5 py-2 rounded-xl font-semibold hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-500/40">
+                  Next Round
+                </button>
               )}
-              {!gameOver && !isHost && <p className="text-gray-500 text-sm mt-3">Waiting for host to start next round...</p>}
+              {!gameOver && !isHost && (
+                <p className="text-gray-500 text-sm mt-4">Waiting for host to start next round…</p>
+              )}
             </div>
           )}
         </div>
 
-        <div className="bg-white p-4 rounded-xl shadow">
-          <h3 className="font-bold mb-2">Scoreboard</h3>
+        <div className="card p-5 animate-fade-in" style={{ animationDelay: "60ms" }}>
+          <h3 className="font-bold mb-3">Scoreboard</h3>
           <table className="w-full text-sm">
-            <thead><tr className="border-b"><th className="text-left py-1">Name</th><th className="text-center py-1">Choice</th><th className="text-center py-1">Score</th></tr></thead>
+            <thead>
+              <tr className="border-b border-gray-100 text-gray-500">
+                <th className="text-left py-1.5 font-medium">Name</th>
+                <th className="text-center py-1.5 font-medium">Pick</th>
+                <th className="text-center py-1.5 font-medium">Score</th>
+              </tr>
+            </thead>
             <tbody>
               {gamePlayers.map((p) => (
-                <tr key={p.id} className={p.isEliminated ? "bg-red-100 text-red-600" : ""}>
-                  <td className="py-1">{p.name} {p.id === playerId && "(you)"}</td>
-                  <td className="text-center py-1">{p.choice != null ? Math.round(p.choice) : "-"}</td>
-                  <td className="text-center py-1">{p.isEliminated ? "ELIM" : p.score}</td>
+                <tr
+                  key={p.id}
+                  className={`border-b border-gray-50 last:border-0 transition-colors ${p.isEliminated ? "bg-red-50 text-red-600" : ""}`}
+                >
+                  <td className="py-2 font-medium">{p.name} {p.id === playerId && <span className="text-gray-400">(you)</span>}</td>
+                  <td className="text-center py-2">{p.choice != null ? Math.round(p.choice) : "—"}</td>
+                  <td className="text-center py-2 font-semibold">{p.isEliminated ? "ELIM" : p.score}</td>
                 </tr>
               ))}
             </tbody>
