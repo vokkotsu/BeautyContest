@@ -357,8 +357,19 @@ export default function App() {
     );
   }
 
-  const gamePlayers = result ? result.players : players.map((p) => ({ id: p.id, name: p.name, choice: null, score: 0, isEliminated: false }));
+  const gamePlayers = result ? result.players : players.map((p) => ({ id: p.id, name: p.name, choice: null, score: p.score ?? 0, isEliminated: !!p.isEliminated }));
   const winnerNames = result ? result.players.filter((p) => result.winnerIds?.includes(p.id)).map((p) => p.name) : [];
+  const activeCount = gamePlayers.filter((p) => !p.isEliminated).length;
+  const activeRules = [];
+  if (activeCount === 2) {
+    activeRules.push("2 players: if picks are 0 and 100, the player who picked 100 wins the round.");
+  }
+  if (activeCount > 0 && activeCount <= 4) {
+    activeRules.push("4 or fewer players: duplicate picks are invalid for that round.");
+  }
+  if (activeCount > 0 && activeCount <= 3) {
+    activeRules.push("3 or fewer players: exact match on the rounded target is a Critical Hit (losers lose 2 points).");
+  }
 
   return (
     <div className="min-h-screen px-4 py-6">
@@ -376,6 +387,16 @@ export default function App() {
               </button>
               <span className="text-xs font-mono text-gray-400 dark:text-[#a89fc0]">Room {roomCode}</span>
             </div>
+          </div>
+
+          <div className="mb-4 p-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-700/40 dark:bg-amber-900/20 dark:text-amber-100">
+            <p className="text-sm font-semibold mb-1">Active rules ({activeCount} active player{activeCount === 1 ? "" : "s"})</p>
+            <ul className="text-sm space-y-1 list-disc pl-5">
+              <li>Target = average × 0.8. Closest valid pick wins; round losers lose 1 point (eliminated at -10).</li>
+              {activeRules.map((rule, i) => (
+                <li key={i} className="font-medium">{rule}</li>
+              ))}
+            </ul>
           </div>
 
           {!submittedSelf && !result && (
