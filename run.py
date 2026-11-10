@@ -27,7 +27,7 @@ def cleanup():
 def main():
     # Backend
     procs.append(subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "main:app", "--reload", "--port", "8000"],
+        [sys.executable, "-m", "uvicorn", "main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"],
         cwd=BACKEND,
     ))
     # Frontend

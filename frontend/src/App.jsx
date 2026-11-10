@@ -1,7 +1,11 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { BeautyContestLogic } from "./gameLogic";
 
-const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:8000/ws";
+const WS_URL =
+  import.meta.env.VITE_WS_URL ||
+  (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "ws://localhost:8000/ws"
+    : "");
 
 export default function App() {
   const wsRef = useRef(null);
@@ -35,9 +39,14 @@ export default function App() {
   }, [dark]);
 
   const connect = useCallback((onOpen) => {
+    if (!WS_URL) {
+      setError("Backend WebSocket URL is not configured. Set VITE_WS_URL for deployed builds.");
+      return null;
+    }
     const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
     ws.onopen = () => { if (onOpen) onOpen(ws); };
+    ws.onerror = () => { setError("Could not connect to the game server. Check that the backend is running and VITE_WS_URL is correct."); };
     ws.onmessage = (ev) => {
       let msg; try { msg = JSON.parse(ev.data); } catch { return; }
       switch (msg.type) {
@@ -76,18 +85,20 @@ export default function App() {
       setScreen("lobby");
       return;
     }
-    connect((ws) => ws.send(JSON.stringify({
+    const ws = connect((ws) => ws.send(JSON.stringify({
       type: "create_room",
       name: name.trim(),
       mode: "multi",
       bots: 0,
     })));
+    if (!ws) return;
   };
   const joinRoom = () => {
     if (!name.trim()) { setError("Enter your name"); return; }
     if (!joinCode.trim()) { setError("Enter room code"); return; }
     setError("");
-    connect((ws) => ws.send(JSON.stringify({ type: "join_room", code: joinCode.trim(), name: name.trim() })));
+    const ws = connect((ws) => ws.send(JSON.stringify({ type: "join_room", code: joinCode.trim(), name: name.trim() })));
+    if (!ws) return;
   };
   const startGame = () => {
     if (isSingle) {
