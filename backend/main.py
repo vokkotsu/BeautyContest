@@ -28,6 +28,8 @@ async def websocket_endpoint(ws: WebSocket):
     player_id = str(uuid.uuid4())
     room = None
     code = None
+    rejoined = False
+    explicit_leave = False
     try:
         raw = await ws.receive_text()
         data = json.loads(raw)
@@ -61,20 +63,34 @@ async def websocket_endpoint(ws: WebSocket):
                 await ws.close()
                 return
             room.add_player(player_id, name, ws)
+        elif data.get("type") == "rejoin_room":
+            player_id = (data.get("playerId") or "").strip()
+            code = (data.get("code") or "").strip().upper()
+            room = manager.get_room(code)
+            if room is None or not player_id or player_id not in room.players:
+                await ws.send_json({"type": "session_invalid", "message": "Session not found"})
+                await ws.close()
+                return
+            room.attach_player(player_id, ws)
+            rejoined = True
+            await ws.send_json(room.state_snapshot(player_id))
+            await room.broadcast({"type": "lobby_update", "players": (room.player_list() if room.state == "lobby" or room.game is None else room.game_players_payload()), "hostId": room.host_id})
         else:
-            await ws.send_json({"type": "error", "message": "First message must create or join a room"})
+            await ws.send_json({"type": "error", "message": "First message must create, join, or rejoin a room"})
             await ws.close()
             return
 
-        await ws.send_json({
-            "type": "joined",
-            "playerId": player_id,
-            "code": code,
-            "isHost": player_id == room.host_id,
-            "players": room.player_list(),
-            "singlePlayer": room.single_player,
-        })
-        await room.broadcast({"type": "lobby_update", "players": room.player_list(), "hostId": room.host_id})
+        if not rejoined:
+            await ws.send_json({
+                "type": "joined",
+                "playerId": player_id,
+                "code": code,
+                "name": room.players.get(player_id),
+                "isHost": player_id == room.host_id,
+                "players": room.player_list(),
+                "singlePlayer": room.single_player,
+            })
+            await room.broadcast({"type": "lobby_update", "players": (room.player_list() if room.state == "lobby" or room.game is None else room.game_players_payload()), "hostId": room.host_id})
 
         while True:
             raw = await ws.receive_text()
@@ -131,6 +147,7 @@ async def websocket_endpoint(ws: WebSocket):
                     await room.broadcast({"type": "round_start", "submitted": list(room.submissions.keys()), "round": room.round_number, "history": room.history})
 
                 elif t == "leave":
+                    explicit_leave = True
                     break
 
     except WebSocketDisconnect:
@@ -142,11 +159,14 @@ async def websocket_endpoint(ws: WebSocket):
             pass
     finally:
         if room is not None and player_id in room.players:
-            room.remove_player(player_id)
-            if room.players or room.single_player:
-                await room.broadcast({"type": "lobby_update", "players": room.player_list(), "hostId": room.host_id})
+            if explicit_leave:
+                room.remove_player(player_id)
+                if room.players or room.single_player:
+                    await room.broadcast({"type": "lobby_update", "players": (room.player_list() if room.state == "lobby" or room.game is None else room.game_players_payload()), "hostId": room.host_id})
+                else:
+                    manager.remove_empty(code)
             else:
-                manager.remove_empty(code)
+                room.detach_player(player_id)
 
 
 if __name__ == "__main__":

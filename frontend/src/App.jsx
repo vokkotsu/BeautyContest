@@ -26,6 +26,9 @@ export default function App() {
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
   const [submittedSelf, setSubmittedSelf] = useState(false);
+  const [session, setSession] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("bc-session") || "null"); } catch { return null; }
+  });
   const [dark, setDark] = useState(() => {
     try { return localStorage.getItem("bc-dark") === "1"; } catch { return false; }
   });
@@ -38,6 +41,13 @@ export default function App() {
     document.documentElement.classList.toggle("dark", dark);
     try { localStorage.setItem("bc-dark", dark ? "1" : "0"); } catch {}
   }, [dark]);
+
+  useEffect(() => {
+    try {
+      if (session) localStorage.setItem("bc-session", JSON.stringify(session));
+      else localStorage.removeItem("bc-session");
+    } catch {}
+  }, [session]);
 
   const connect = useCallback((onOpen) => {
     if (!WS_URL) {
@@ -52,17 +62,45 @@ export default function App() {
       let msg; try { msg = JSON.parse(ev.data); } catch { return; }
       switch (msg.type) {
         case "joined":
-          setPlayerId(msg.playerId); setRoomCode(msg.code); setIsHost(msg.isHost); setPlayers(msg.players); setScreen("lobby"); break;
+          setPlayerId(msg.playerId); setRoomCode(msg.code); setIsHost(msg.isHost); setPlayers(msg.players || []); setScreen("lobby"); setHistory([]); setResult(null); setSubmitted([]); setSubmittedSelf(false);
+          setSession({ code: msg.code, playerId: msg.playerId, name: msg.name || name });
+          break;
         case "lobby_update":
-          setPlayers(msg.players); setHostId(msg.hostId); break;
+          setPlayers(msg.players || []); setHostId(msg.hostId);
+          if (msg.hostId && (session?.playerId || playerId)) setIsHost(msg.hostId === (session?.playerId || playerId));
+          break;
         case "game_started":
           setScreen("game"); setRound(msg.round || 1); setSubmitted([]); setSubmittedSelf(false); setResult(null); setGameOver(false); setMatchWinnerId(null); setValue(""); setError(""); setHistory(msg.history || []); break;
         case "round_start":
-          setSubmitted(msg.submitted || []); setSubmittedSelf(false); setResult(null); setGameOver(false); setMatchWinnerId(null); setValue(""); setError(""); if (msg.round) setRound(msg.round); if (msg.history) setHistory(msg.history); break;
+          setSubmitted(msg.submitted || []); setSubmittedSelf(false); setResult(null); setGameOver(false); setMatchWinnerId(null); setValue(""); setError(""); if (msg.round) setRound(msg.round); if (msg.history) setHistory(msg.history);
+          break;
         case "submission_update":
           setSubmitted(msg.submitted || []); break;
         case "round_result":
           setResult(msg); setPlayers(msg.players || []); setSubmitted(msg.submitted || []); setGameOver(!!msg.gameOver); setMatchWinnerId(msg.matchWinnerId); if (msg.history) setHistory(msg.history); break;
+        case "state_sync": {
+          const pid = msg.playerId;
+          setPlayerId(pid); setRoomCode(msg.code); setIsHost(!!msg.isHost); setHostId(msg.hostId || null);
+          setPlayers(msg.players || []); setRound(msg.round || 1); setHistory(msg.history || []);
+          setSubmitted(msg.submitted || []); setSession({ code: msg.code, playerId: pid, name: session?.name || name });
+          if (msg.state === "lobby") {
+            setScreen("lobby"); setResult(null); setGameOver(false); setMatchWinnerId(null); setSubmittedSelf(false);
+          } else {
+            setScreen("game");
+            if (msg.state === "result" && msg.result) {
+              setResult(msg.result); setGameOver(!!msg.result.gameOver); setMatchWinnerId(msg.result.matchWinnerId);
+              setSubmittedSelf(false);
+            } else {
+              setResult(null); setGameOver(false); setMatchWinnerId(null);
+              const meP = (msg.players || []).find((p) => p.id === pid);
+              setSubmittedSelf(!!(meP && !meP.isEliminated && (msg.submitted || []).includes(pid)));
+            }
+          }
+          break;
+        }
+        case "session_invalid":
+          setSession(null); setError(msg.message || "Session expired. Please join again."); setScreen("landing");
+          break;
         case "error":
           setError(msg.message); break;
         default: break;
@@ -228,6 +266,16 @@ export default function App() {
     wsRef.current?.send(JSON.stringify({ type: "next_round" }));
   };
 
+  useEffect(() => {
+    if (!session || isSingle) return;
+    if (screen !== "landing") return;
+    // attempt auto-rejoin once on load when we have a saved multiplayer session
+    const ws = connect((sock) => {
+      sock.send(JSON.stringify({ type: "rejoin_room", code: session.code, playerId: session.playerId }));
+    });
+    if (!ws) return;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const submittedSet = new Set(submitted);
 
   if (screen === "landing") {
@@ -384,6 +432,7 @@ export default function App() {
   const activeCount = activePlayers.length;
   const me = gamePlayers.find((p) => p.id === playerId);
   const iAmEliminated = !!me?.isEliminated;
+  const effectiveSubmittedSelf = submittedSelf || (!!me && !me.isEliminated && !result && submittedSet.has(playerId));
   const activeRules = [];
   if (activeCount === 2) {
     activeRules.push("2 players: if picks are 0 and 100, the player who picked 100 wins the round.");
@@ -423,7 +472,7 @@ export default function App() {
             </ul>
           </div>
 
-          {!submittedSelf && !result && !iAmEliminated && (
+          {!effectiveSubmittedSelf && !result && !iAmEliminated && (
             <div className="mb-5">
               <p className="block text-sm font-medium mb-2">Pick your number (0–100)</p>
               <div className="grid grid-cols-10 sm:grid-cols-[repeat(20,minmax(0,1fr))] gap-1.5 max-h-80 overflow-y-auto p-1 rounded-xl border border-gray-100 bg-gray-50 dark:bg-[#1f1533] dark:border-[#3a2a55]">
@@ -452,7 +501,7 @@ export default function App() {
             </div>
           )}
 
-          {submittedSelf && !result && !iAmEliminated && (
+          {effectiveSubmittedSelf && !result && !iAmEliminated && (
             <div className="mb-4 flex items-center gap-2 text-emerald-700 font-medium animate-pop-in">
               <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
               Submitted! Waiting for others…

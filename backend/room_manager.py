@@ -42,8 +42,18 @@ class Room:
     def remove_player(self, pid):
         self.players.pop(pid, None)
         self.player_ws.pop(pid, None)
+        self.submissions.pop(pid, None)
         if pid == self.host_id and self.players:
             self.host_id = next(iter(self.players))
+
+    def detach_player(self, pid):
+        self.player_ws.pop(pid, None)
+
+    def attach_player(self, pid, ws):
+        if pid in self.players:
+            self.player_ws[pid] = ws
+            return True
+        return False
 
     def all_participant_ids(self):
         return list(self.players.keys()) + [b["id"] for b in self.bots]
@@ -75,7 +85,7 @@ class Room:
             except Exception:
                 dead.append(pid)
         for pid in dead:
-            self.remove_player(pid)
+            self.detach_player(pid)
 
     def _is_eliminated(self, pid):
         gid = self.pid_to_gameid.get(pid)
@@ -130,6 +140,62 @@ class Room:
             return False
         self.submissions[pid] = float(value)
 
+    def game_players_payload(self):
+        if self.game is None:
+            return self.player_list()
+        gid_to_pid = {v: k for k, v in self.pid_to_gameid.items()}
+        players_payload = []
+        for gp in self.game.players:
+            pid = gid_to_pid.get(gp.id)
+            players_payload.append({
+                "id": pid,
+                "name": gp.name,
+                "choice": gp.last_choice,
+                "score": gp.score,
+                "isEliminated": gp.is_eliminated,
+                "isBot": self.is_bot(pid) if pid else False,
+            })
+        return players_payload
+
+    def state_snapshot(self, pid):
+        snapshot = {
+            "type": "state_sync",
+            "playerId": pid,
+            "code": self.code,
+            "isHost": pid == self.host_id,
+            "hostId": self.host_id,
+            "state": self.state,
+            "round": self.round_number,
+            "history": self.history,
+            "submitted": list(self.submissions.keys()),
+        }
+        if self.state == "lobby" or self.game is None:
+            snapshot["players"] = self.player_list()
+        else:
+            snapshot["players"] = self.game_players_payload()
+            if self.state == "result" and self.current_results:
+                res = self.current_results
+                gid_to_pid = {v: k for k, v in self.pid_to_gameid.items()}
+                winners_ids = [gid_to_pid.get(p.id) for p in (res.get("winners") or [])]
+                losers_ids = [gid_to_pid.get(p.id) for p in (res.get("losers") or [])]
+                mw = self.game.get_match_winner()
+                match_winner_pid = gid_to_pid.get(mw.id) if mw is not None and mw != "No One" else None
+                snapshot["result"] = {
+                    "type": "round_result",
+                    "round": self.round_number,
+                    "avg": res.get("avg"),
+                    "target": res.get("target"),
+                    "logs": res.get("logs"),
+                    "activeCount": res.get("active_count"),
+                    "players": snapshot["players"],
+                    "winnerIds": winners_ids,
+                    "loserIds": losers_ids,
+                    "matchWinnerId": match_winner_pid,
+                    "gameOver": match_winner_pid is not None or mw == "No One",
+                    "history": self.history,
+                }
+        return snapshot
+
     def calculate(self):
         game = self.game
         for pid, val in self.submissions.items():
@@ -141,17 +207,7 @@ class Room:
         self.current_results = res
         self.state = "result"
         gid_to_pid = {v: k for k, v in self.pid_to_gameid.items()}
-        players_payload = []
-        for gp in game.players:
-            pid = gid_to_pid.get(gp.id)
-            players_payload.append({
-                "id": pid,
-                "name": gp.name,
-                "choice": gp.last_choice,
-                "score": gp.score,
-                "isEliminated": gp.is_eliminated,
-                "isBot": self.is_bot(pid) if pid else False,
-            })
+        players_payload = self.game_players_payload()
         winners_ids = [gid_to_pid.get(p.id) for p in (res["winners"] or [])]
         losers_ids = [gid_to_pid.get(p.id) for p in (res["losers"] or [])]
         history_entry = {
