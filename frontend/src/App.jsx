@@ -20,6 +20,7 @@ export default function App() {
   const [submitted, setSubmitted] = useState([]);
   const [result, setResult] = useState(null);
   const [round, setRound] = useState(1);
+  const [history, setHistory] = useState([]);
   const [gameOver, setGameOver] = useState(false);
   const [matchWinnerId, setMatchWinnerId] = useState(null);
   const [value, setValue] = useState("");
@@ -55,13 +56,13 @@ export default function App() {
         case "lobby_update":
           setPlayers(msg.players); setHostId(msg.hostId); break;
         case "game_started":
-          setScreen("game"); setRound(msg.round || 1); setSubmitted([]); setSubmittedSelf(false); setResult(null); setGameOver(false); setMatchWinnerId(null); setValue(""); setError(""); break;
+          setScreen("game"); setRound(msg.round || 1); setSubmitted([]); setSubmittedSelf(false); setResult(null); setGameOver(false); setMatchWinnerId(null); setValue(""); setError(""); setHistory(msg.history || []); break;
         case "round_start":
-          setSubmitted(msg.submitted || []); setSubmittedSelf(false); setResult(null); setGameOver(false); setMatchWinnerId(null); setValue(""); setError(""); if (msg.round) setRound(msg.round); break;
+          setSubmitted(msg.submitted || []); setSubmittedSelf(false); setResult(null); setGameOver(false); setMatchWinnerId(null); setValue(""); setError(""); if (msg.round) setRound(msg.round); if (msg.history) setHistory(msg.history); break;
         case "submission_update":
           setSubmitted(msg.submitted || []); break;
         case "round_result":
-          setResult(msg); setPlayers(msg.players || []); setSubmitted(msg.submitted || []); setGameOver(!!msg.gameOver); setMatchWinnerId(msg.matchWinnerId); break;
+          setResult(msg); setPlayers(msg.players || []); setSubmitted(msg.submitted || []); setGameOver(!!msg.gameOver); setMatchWinnerId(msg.matchWinnerId); if (msg.history) setHistory(msg.history); break;
         case "error":
           setError(msg.message); break;
         default: break;
@@ -130,6 +131,7 @@ export default function App() {
       setResult(null);
       setGameOver(false);
       setMatchWinnerId(null);
+      setHistory([]);
       setRound(1);
       setScreen("game");
       return;
@@ -167,17 +169,34 @@ export default function App() {
         const mw = logic.getMatchWinner();
         const matchWinnerId = mw && mw !== "No One" ? ids[mw.id - 1] : null;
         const gameOver = matchWinnerId !== null || mw === "No One";
+        const winnerIds = (res.winners || []).map((p) => ids[p.id - 1]);
+        const loserIds = (res.losers || []).map((p) => ids[p.id - 1]);
+        const historyEntry = {
+          round,
+          avg: res.avg,
+          target: res.target,
+          logs: res.logs,
+          picks: updated
+            .filter((p) => p.choice != null)
+            .map((p) => ({ id: p.id, name: p.name, choice: p.choice, isEliminated: p.isEliminated })),
+          winnerIds,
+          loserIds,
+        };
+        const nextHistory = [...history, historyEntry];
+        setHistory(nextHistory);
         setResult({
           type: "round_result",
+          round,
           avg: res.avg,
           target: res.target,
           logs: res.logs,
           activeCount: res.activeCount,
           players: updated,
-          winnerIds: (res.winners || []).map((p) => ids[p.id - 1]),
-          loserIds: (res.losers || []).map((p) => ids[p.id - 1]),
+          winnerIds,
+          loserIds,
           matchWinnerId,
           gameOver,
+          history: nextHistory,
         });
         setGameOver(gameOver);
         setMatchWinnerId(matchWinnerId);
@@ -361,7 +380,10 @@ export default function App() {
 
   const gamePlayers = result ? result.players : players.map((p) => ({ id: p.id, name: p.name, choice: null, score: p.score ?? 0, isEliminated: !!p.isEliminated }));
   const winnerNames = result ? result.players.filter((p) => result.winnerIds?.includes(p.id)).map((p) => p.name) : [];
-  const activeCount = gamePlayers.filter((p) => !p.isEliminated).length;
+  const activePlayers = gamePlayers.filter((p) => !p.isEliminated);
+  const activeCount = activePlayers.length;
+  const me = gamePlayers.find((p) => p.id === playerId);
+  const iAmEliminated = !!me?.isEliminated;
   const activeRules = [];
   if (activeCount === 2) {
     activeRules.push("2 players: if picks are 0 and 100, the player who picked 100 wins the round.");
@@ -401,7 +423,7 @@ export default function App() {
             </ul>
           </div>
 
-          {!submittedSelf && !result && (
+          {!submittedSelf && !result && !iAmEliminated && (
             <div className="mb-5">
               <p className="block text-sm font-medium mb-2">Pick your number (0–100)</p>
               <div className="grid grid-cols-10 sm:grid-cols-[repeat(20,minmax(0,1fr))] gap-1.5 max-h-80 overflow-y-auto p-1 rounded-xl border border-gray-100 bg-gray-50 dark:bg-[#1f1533] dark:border-[#3a2a55]">
@@ -424,7 +446,13 @@ export default function App() {
             </div>
           )}
 
-          {submittedSelf && !result && (
+          {!result && iAmEliminated && (
+            <div className="mb-4 p-3 rounded-xl border border-red-200 bg-red-50 text-red-700 dark:border-red-800/40 dark:bg-red-900/20 dark:text-red-200">
+              You are eliminated. Waiting for the remaining players to finish this session…
+            </div>
+          )}
+
+          {submittedSelf && !result && !iAmEliminated && (
             <div className="mb-4 flex items-center gap-2 text-emerald-700 font-medium animate-pop-in">
               <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
               Submitted! Waiting for others…
@@ -432,16 +460,20 @@ export default function App() {
           )}
 
           <div className="mb-4">
-            <h3 className="text-sm font-semibold text-gray-600 dark:text-[#a89fc0] mb-2">Submitted ({submitted.length}/{players.length})</h3>
+            <h3 className="text-sm font-semibold text-gray-600 dark:text-[#a89fc0] mb-2">Submitted ({submitted.filter((id) => activePlayers.some((p) => p.id === id)).length}/{activeCount})</h3>
             <div className="flex flex-wrap gap-2">
-              {players.map((p) => (
+              {gamePlayers.map((p) => (
                 <span
                   key={p.id}
                   className={`px-3 py-1 rounded-full text-xs font-medium transition-colors duration-200 ${
-                    submittedSet.has(p.id) ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-500 dark:text-[#a89fc0]"
+                    p.isEliminated
+                      ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                      : submittedSet.has(p.id)
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-gray-100 text-gray-500 dark:text-[#a89fc0]"
                   }`}
                 >
-                  {p.name} {submittedSet.has(p.id) ? "✓" : "…"}
+                  {p.name} {p.isEliminated ? "(out)" : submittedSet.has(p.id) ? "✓" : "…"}
                 </span>
               ))}
             </div>
@@ -487,30 +519,63 @@ export default function App() {
           )}
         </div>
 
-        <div className="card p-5 animate-fade-in" style={{ animationDelay: "60ms" }}>
-          <h3 className="font-bold mb-3">Scoreboard</h3>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 text-gray-500 dark:text-[#a89fc0]">
-                <th className="text-left py-1.5 font-medium">Name</th>
-                <th className="text-center py-1.5 font-medium">Pick</th>
-                <th className="text-center py-1.5 font-medium">Score</th>
-              </tr>
-            </thead>
-            <tbody>
-              {gamePlayers.map((p, i) => (
-                <tr
-                  key={p.id}
-                  className={`border-b border-gray-50 last:border-0 transition-colors animate-fade-in ${p.isEliminated ? "bg-red-50 text-red-600" : ""}`}
-                  style={{ animationDelay: `${i * 50}ms` }}
-                >
-                  <td className="py-2 font-medium">{p.name} {p.id === playerId && <span className="text-gray-400 dark:text-[#a89fc0]">(you)</span>}</td>
-                  <td className="text-center py-2">{p.isEliminated ? "—" : (p.choice != null ? Math.round(p.choice) : "—")}</td>
-                  <td className="text-center py-2 font-semibold">{p.isEliminated ? "ELIM" : p.score}</td>
+        <div className="space-y-5">
+          <div className="card p-5 animate-fade-in" style={{ animationDelay: "60ms" }}>
+            <h3 className="font-bold mb-3">Scoreboard</h3>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-gray-500 dark:text-[#a89fc0]">
+                  <th className="text-left py-1.5 font-medium">Name</th>
+                  <th className="text-center py-1.5 font-medium">Pick</th>
+                  <th className="text-center py-1.5 font-medium">Score</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {gamePlayers.map((p, i) => (
+                  <tr
+                    key={p.id}
+                    className={`border-b border-gray-50 last:border-0 transition-colors animate-fade-in ${p.isEliminated ? "bg-red-50 text-red-600" : ""}`}
+                    style={{ animationDelay: `${i * 50}ms` }}
+                  >
+                    <td className="py-2 font-medium">{p.name} {p.id === playerId && <span className="text-gray-400 dark:text-[#a89fc0]">(you)</span>}</td>
+                    <td className="text-center py-2">{p.isEliminated ? "—" : (p.choice != null ? Math.round(p.choice) : "—")}</td>
+                    <td className="text-center py-2 font-semibold">{p.isEliminated ? "ELIM" : p.score}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="card p-5 animate-fade-in" style={{ animationDelay: "90ms" }}>
+            <h3 className="font-bold mb-3">Session History</h3>
+            {history.length === 0 ? (
+              <p className="text-sm text-gray-500 dark:text-[#a89fc0]">No completed rounds yet.</p>
+            ) : (
+              <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
+                {[...history].reverse().map((h) => (
+                  <div key={h.round} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm dark:border-[#3a2a55] dark:bg-[#1f1533]">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="font-semibold">Round {h.round}</span>
+                      <span className="text-xs text-gray-500 dark:text-[#a89fc0]">Avg {Number(h.avg).toFixed(2)} · Target {Number(h.target).toFixed(2)}</span>
+                    </div>
+                    <ul className="space-y-0.5">
+                      {(h.picks || []).map((p) => (
+                        <li key={p.id} className="flex justify-between gap-2">
+                          <span>{p.name} {p.isEliminated ? <span className="text-red-500">(out)</span> : null}</span>
+                          <span className="font-mono">{p.choice != null ? Math.round(p.choice) : "—"}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {h.logs?.length > 0 && (
+                      <ul className="mt-1.5 text-xs text-red-600 space-y-0.5">
+                        {h.logs.map((l, i) => <li key={i}>&gt;&gt; {l}</li>)}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

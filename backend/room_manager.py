@@ -21,6 +21,7 @@ class Room:
         self.current_results = None
         self.pid_to_gameid = {}
         self.round_number = 0
+        self.history = []  # completed round summaries
         self.lock = asyncio.Lock()
 
     def add_player(self, pid, name, ws):
@@ -106,6 +107,7 @@ class Room:
         self.submissions = {}
         self.current_results = None
         self.round_number = 1
+        self.history = []
         # auto-submit bots
         self._submit_bots()
 
@@ -152,12 +154,27 @@ class Room:
             })
         winners_ids = [gid_to_pid.get(p.id) for p in (res["winners"] or [])]
         losers_ids = [gid_to_pid.get(p.id) for p in (res["losers"] or [])]
+        history_entry = {
+            "round": self.round_number,
+            "avg": res["avg"],
+            "target": res["target"],
+            "logs": res["logs"],
+            "picks": [
+                {"id": gp["id"], "name": gp["name"], "choice": gp["choice"], "isEliminated": gp["isEliminated"]}
+                for gp in players_payload
+                if gp["choice"] is not None
+            ],
+            "winnerIds": winners_ids,
+            "loserIds": losers_ids,
+        }
+        self.history.append(history_entry)
         match_winner_pid = None
         mw = game.get_match_winner()
         if mw is not None and mw != "No One":
             match_winner_pid = gid_to_pid.get(mw.id)
         payload = {
             "type": "round_result",
+            "round": self.round_number,
             "avg": res["avg"],
             "target": res["target"],
             "logs": res["logs"],
@@ -167,6 +184,7 @@ class Room:
             "loserIds": losers_ids,
             "matchWinnerId": match_winner_pid,
             "gameOver": match_winner_pid is not None or mw == "No One",
+            "history": self.history,
         }
         return payload
 

@@ -94,9 +94,9 @@ async def websocket_endpoint(ws: WebSocket):
                     if room.state != "lobby":
                         continue
                     room.start_game()
-                    await room.broadcast({"type": "game_started", "round": room.round_number})
+                    await room.broadcast({"type": "game_started", "round": room.round_number, "history": room.history})
                     # bots already submitted inside start_game; broadcast state
-                    await room.broadcast({"type": "round_start", "submitted": list(room.submissions.keys()), "round": room.round_number})
+                    await room.broadcast({"type": "round_start", "submitted": list(room.submissions.keys()), "round": room.round_number, "history": room.history})
 
                 elif t == "submit":
                     if room.state != "playing":
@@ -110,6 +110,7 @@ async def websocket_endpoint(ws: WebSocket):
                         continue
                     val = max(0.0, min(100.0, val))
                     if room._is_eliminated(player_id):
+                        await ws.send_json({"type": "error", "message": "You are eliminated and cannot submit"})
                         continue
                     room.submit(player_id, val)
                     submitted_ids = list(room.submissions.keys())
@@ -127,7 +128,7 @@ async def websocket_endpoint(ws: WebSocket):
                     if mw is not None:
                         continue
                     room.next_round()
-                    await room.broadcast({"type": "round_start", "submitted": list(room.submissions.keys()), "round": room.round_number})
+                    await room.broadcast({"type": "round_start", "submitted": list(room.submissions.keys()), "round": room.round_number, "history": room.history})
 
                 elif t == "leave":
                     break
