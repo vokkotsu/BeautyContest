@@ -55,13 +55,13 @@ export default function App() {
         case "lobby_update":
           setPlayers(msg.players); setHostId(msg.hostId); break;
         case "game_started":
-          setScreen("game"); setRound(msg.round || 1); setSubmitted([]); setSubmittedSelf(false); setResult(null); setGameOver(false); setMatchWinnerId(null); break;
+          setScreen("game"); setRound(msg.round || 1); setSubmitted([]); setSubmittedSelf(false); setResult(null); setGameOver(false); setMatchWinnerId(null); setValue(""); setError(""); break;
         case "round_start":
-          setSubmitted(msg.submitted || []); setSubmittedSelf(false); if (msg.round) setRound(msg.round); break;
+          setSubmitted(msg.submitted || []); setSubmittedSelf(false); setResult(null); setGameOver(false); setMatchWinnerId(null); setValue(""); setError(""); if (msg.round) setRound(msg.round); break;
         case "submission_update":
           setSubmitted(msg.submitted || []); break;
         case "round_result":
-          setResult(msg); setSubmitted(msg.submitted || []); setGameOver(!!msg.gameOver); setMatchWinnerId(msg.matchWinnerId); break;
+          setResult(msg); setPlayers(msg.players || []); setSubmitted(msg.submitted || []); setGameOver(!!msg.gameOver); setMatchWinnerId(msg.matchWinnerId); break;
         case "error":
           setError(msg.message); break;
         default: break;
