@@ -136,11 +136,13 @@ export default function App() {
     }
     wsRef.current?.send(JSON.stringify({ type: "start_game" }));
   };
-  const submit = () => {
-    const v = parseFloat(value);
-    if (isNaN(v)) { setError("Enter a number 0-100"); return; }
+  const submit = (picked) => {
+    const raw = picked !== undefined ? picked : value;
+    const v = parseFloat(raw);
+    if (isNaN(v)) { setError("Select a number 0-100"); return; }
     if (v < 0 || v > 100) { setError("Number must be 0-100"); return; }
     setError("");
+    setValue(String(v));
     if (isSingle) {
       if (submittedSelf) return;
       const logic = logicRef.current;
@@ -401,21 +403,22 @@ export default function App() {
 
           {!submittedSelf && !result && (
             <div className="mb-5">
-              <label htmlFor="guess" className="block text-sm font-medium mb-1">Your number (0–100)</label>
-              <div className="flex gap-2">
-                <input
-                  id="guess"
-                  type="number"
-                  min="0"
-                  max="100"
-                  className="input"
-                  value={value}
-                  onChange={(e) => setValue(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-                />
-                <button onClick={submit} className="bg-emerald-600 text-white px-5 py-2 rounded-xl font-semibold hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
-                  Submit
-                </button>
+              <p className="block text-sm font-medium mb-2">Pick your number (0–100)</p>
+              <div className="grid grid-cols-10 sm:grid-cols-[repeat(20,minmax(0,1fr))] gap-1.5 max-h-80 overflow-y-auto p-1 rounded-xl border border-gray-100 bg-gray-50 dark:bg-[#1f1533] dark:border-[#3a2a55]">
+                {Array.from({ length: 101 }, (_, n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => submit(n)}
+                    className={`py-1.5 text-xs sm:text-sm rounded-md border transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/40 ${
+                      String(value) === String(n)
+                        ? "bg-emerald-600 text-white border-emerald-600"
+                        : "bg-white text-slate-800 border-gray-200 hover:bg-emerald-50 hover:border-emerald-400 dark:bg-[#251a3a] dark:text-slate-100 dark:border-[#3a2a55] dark:hover:bg-emerald-900/30"
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
               </div>
               {error && <div role="alert" className="text-sm text-red-600 mt-2">{error}</div>}
             </div>
