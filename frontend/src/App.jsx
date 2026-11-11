@@ -26,6 +26,9 @@ export default function App() {
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
   const [submittedSelf, setSubmittedSelf] = useState(false);
+  const [readyState, setReadyState] = useState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 });
+  const [countdownLeft, setCountdownLeft] = useState(null);
+  const [readySent, setReadySent] = useState(false);
   const [session, setSession] = useState(() => {
     try { return JSON.parse(localStorage.getItem("bc-session") || "null"); } catch { return null; }
   });
@@ -61,9 +64,22 @@ export default function App() {
     ws.onerror = () => { setError("Could not connect to the game server. Check that the backend is running and VITE_WS_URL is correct."); };
     ws.onmessage = (ev) => {
       let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+      const applyReady = (payload) => {
+        const countdown = payload?.countdown ?? 15;
+        setReadyState({
+          ready: payload?.ready || [],
+          readyCount: payload?.readyCount ?? (payload?.ready ? payload.ready.length : 0),
+          requiredCount: payload?.requiredCount ?? 0,
+          countdown,
+        });
+        setCountdownLeft(payload?.gameOver ? null : countdown);
+        setReadySent(false);
+      };
+
       switch (msg.type) {
         case "joined":
           setPlayerId(msg.playerId); setRoomCode(msg.code); setIsHost(msg.isHost); setPlayers(msg.players || []); setScreen("lobby"); setHistory([]); setResult(null); setSubmitted([]); setSubmittedSelf(false);
+          setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 }); setCountdownLeft(null); setReadySent(false);
           setSession({ code: msg.code, playerId: msg.playerId, name: msg.name || name });
           break;
         case "lobby_update":
@@ -71,14 +87,30 @@ export default function App() {
           if (msg.hostId && (session?.playerId || playerId)) setIsHost(msg.hostId === (session?.playerId || playerId));
           break;
         case "game_started":
-          setScreen("game"); setRound(msg.round || 1); setSubmitted([]); setSubmittedSelf(false); setResult(null); setGameOver(false); setMatchWinnerId(null); setValue(""); setError(""); setHistory(msg.history || []); break;
+          setScreen("game"); setRound(msg.round || 1); setSubmitted([]); setSubmittedSelf(false); setResult(null); setGameOver(false); setMatchWinnerId(null); setValue(""); setError(""); setHistory(msg.history || []);
+          setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 }); setCountdownLeft(null); setReadySent(false);
+          break;
         case "round_start":
           setSubmitted(msg.submitted || []); setSubmittedSelf(false); setResult(null); setGameOver(false); setMatchWinnerId(null); setValue(""); setError(""); if (msg.round) setRound(msg.round); if (msg.history) setHistory(msg.history);
+          setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 }); setCountdownLeft(null); setReadySent(false);
           break;
         case "submission_update":
           setSubmitted(msg.submitted || []); break;
         case "round_result":
-          setResult(msg); setPlayers(msg.players || []); setSubmitted(msg.submitted || []); setGameOver(!!msg.gameOver); setMatchWinnerId(msg.matchWinnerId); if (msg.history) setHistory(msg.history); break;
+          setResult(msg); setPlayers(msg.players || []); setSubmitted(msg.submitted || []); setGameOver(!!msg.gameOver); setMatchWinnerId(msg.matchWinnerId); if (msg.history) setHistory(msg.history);
+          if (!msg.gameOver) applyReady(msg); else { setCountdownLeft(null); setReadySent(false); }
+          break;
+        case "ready_update":
+          if (!gameOver) {
+            setReadyState((prev) => ({
+              ...prev,
+              ready: msg.ready || [],
+              readyCount: msg.readyCount ?? (msg.ready ? msg.ready.length : 0),
+              requiredCount: msg.requiredCount ?? prev.requiredCount,
+              countdown: msg.countdown ?? prev.countdown ?? 15,
+            }));
+          }
+          break;
         case "state_sync": {
           const pid = msg.playerId;
           setPlayerId(pid); setRoomCode(msg.code); setIsHost(!!msg.isHost); setHostId(msg.hostId || null);
@@ -86,13 +118,16 @@ export default function App() {
           setSubmitted(msg.submitted || []); setSession({ code: msg.code, playerId: pid, name: session?.name || name });
           if (msg.state === "lobby") {
             setScreen("lobby"); setResult(null); setGameOver(false); setMatchWinnerId(null); setSubmittedSelf(false);
+            setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 }); setCountdownLeft(null); setReadySent(false);
           } else {
             setScreen("game");
             if (msg.state === "result" && msg.result) {
               setResult(msg.result); setGameOver(!!msg.result.gameOver); setMatchWinnerId(msg.result.matchWinnerId);
               setSubmittedSelf(false);
+              if (!msg.result.gameOver) applyReady(msg.result); else { setCountdownLeft(null); setReadySent(false); }
             } else {
               setResult(null); setGameOver(false); setMatchWinnerId(null);
+              setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 }); setCountdownLeft(null); setReadySent(false);
               const meP = (msg.players || []).find((p) => p.id === pid);
               setSubmittedSelf(!!(meP && !meP.isEliminated && (msg.submitted || []).includes(pid)));
             }
@@ -264,7 +299,9 @@ export default function App() {
       setRound((r) => r + 1);
       return;
     }
-    wsRef.current?.send(JSON.stringify({ type: "next_round" }));
+    if (readySent) return;
+    setReadySent(true);
+    wsRef.current?.send(JSON.stringify({ type: "ready_next" }));
   };
 
   useEffect(() => {
@@ -277,7 +314,15 @@ export default function App() {
     if (!ws) return;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (!result || gameOver || countdownLeft == null) return;
+    if (countdownLeft <= 0) return;
+    const t = setTimeout(() => setCountdownLeft((s) => (s == null ? s : Math.max(0, s - 1))), 1000);
+    return () => clearTimeout(t);
+  }, [result, gameOver, countdownLeft]);
+
   const submittedSet = new Set(submitted);
+  const readySet = new Set(readyState.ready || []);
 
   if (screen === "landing") {
     return (
@@ -582,13 +627,50 @@ export default function App() {
                   </p>
                 </div>
               )}
-              {!gameOver && isHost && (
-                <button onClick={nextRound} className="mt-4 bg-[#663298] text-white px-5 py-2 rounded-xl font-semibold hover:bg-[#552a80] focus:outline-none focus:ring-2 focus:ring-[#663298]/40">
-                  Next Round
-                </button>
-              )}
-              {!gameOver && !isHost && (
-                <p className="text-gray-500 dark:text-[#a89fc0] text-sm mt-4">Waiting for host to start next round…</p>
+              {!gameOver && (
+                <div className="mt-4 p-3 rounded-xl border border-gray-200 bg-gray-50 dark:border-[#3a2a55] dark:bg-[#1f1533]">
+                  {isSingle ? (
+                    <button onClick={nextRound} className="bg-[#663298] text-white px-5 py-2 rounded-xl font-semibold hover:bg-[#552a80] focus:outline-none focus:ring-2 focus:ring-[#663298]/40">
+                      Next Round
+                    </button>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between gap-3 mb-2">
+                        <p className="text-sm font-semibold">
+                          Ready for next round: {readyState.readyCount}/{readyState.requiredCount || 0}
+                        </p>
+                        <p className="text-sm font-mono text-gray-600 dark:text-[#a89fc0]">
+                          Auto-start in {countdownLeft ?? readyState.countdown ?? 15}s
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {gamePlayers.filter((p) => !p.isEliminated && !p.isBot).map((p) => (
+                          <span
+                            key={p.id}
+                            className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                              readySet.has(p.id)
+                                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"
+                                : "bg-gray-200 text-gray-600 dark:bg-[#2b2140] dark:text-[#cfc6df]"
+                            }`}
+                          >
+                            {p.name} {readySet.has(p.id) ? "✓ Ready" : "…"}
+                          </span>
+                        ))}
+                      </div>
+                      {!iAmEliminated ? (
+                        <button
+                          onClick={nextRound}
+                          disabled={readySet.has(playerId) || readySent}
+                          className="bg-[#663298] text-white px-5 py-2 rounded-xl font-semibold hover:bg-[#552a80] disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#663298]/40"
+                        >
+                          {readySet.has(playerId) || readySent ? "You're ready" : "I'm Ready"}
+                        </button>
+                      ) : (
+                        <p className="text-sm text-gray-500 dark:text-[#a89fc0]">You are eliminated. Waiting for remaining players…</p>
+                      )}
+                    </>
+                  )}
+                </div>
               )}
             </div>
           )}

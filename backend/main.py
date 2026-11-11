@@ -17,6 +17,38 @@ app.add_middleware(
 )
 
 
+async def broadcast_round_start(room):
+    await room.broadcast({
+        "type": "round_start",
+        "submitted": list(room.submissions.keys()),
+        "round": room.round_number,
+        "history": room.history,
+    })
+
+
+def schedule_auto_next_round(room):
+    room.cancel_auto_next()
+
+    async def _auto_next():
+        try:
+            await asyncio.sleep(room.READY_COUNTDOWN)
+            async with room.lock:
+                if room.state != "result":
+                    return
+                mw = room.game.get_match_winner() if room.game else None
+                if mw is not None:
+                    return
+                room.next_round()
+                await broadcast_round_start(room)
+        except asyncio.CancelledError:
+            return
+        finally:
+            if room.auto_next_task is asyncio.current_task():
+                room.auto_next_task = None
+
+    room.auto_next_task = asyncio.create_task(_auto_next())
+
+
 @app.get("/")
 def root():
     return {"status": "ok", "service": "beauty-contest"}
@@ -134,8 +166,24 @@ async def websocket_endpoint(ws: WebSocket):
                     if room.all_submitted():
                         payload = room.calculate()
                         await room.broadcast(payload)
+                        if not payload.get("gameOver"):
+                            schedule_auto_next_round(room)
+
+                elif t == "ready_next":
+                    if room.state != "result":
+                        continue
+                    mw = room.game.get_match_winner() if room.game else None
+                    if mw is not None:
+                        continue
+                    changed = room.mark_ready(player_id)
+                    if changed and room.all_humans_ready():
+                        room.next_round()
+                        await broadcast_round_start(room)
+                    elif changed:
+                        await room.broadcast(room.ready_payload())
 
                 elif t == "next_round":
+                    # Backwards-compat: allow host to force-start, but prefer ready flow.
                     if player_id != room.host_id:
                         continue
                     if room.state != "result":
@@ -144,7 +192,7 @@ async def websocket_endpoint(ws: WebSocket):
                     if mw is not None:
                         continue
                     room.next_round()
-                    await room.broadcast({"type": "round_start", "submitted": list(room.submissions.keys()), "round": room.round_number, "history": room.history})
+                    await broadcast_round_start(room)
 
                 elif t == "leave":
                     explicit_leave = True
@@ -161,10 +209,19 @@ async def websocket_endpoint(ws: WebSocket):
         if room is not None and player_id in room.players:
             if explicit_leave:
                 room.remove_player(player_id)
-                if room.players or room.single_player:
-                    await room.broadcast({"type": "lobby_update", "players": (room.player_list() if room.state == "lobby" or room.game is None else room.game_players_payload()), "hostId": room.host_id})
-                else:
+                if not room.players and not room.single_player:
+                    room.cancel_auto_next()
                     manager.remove_empty(code)
+                elif room.state == "result":
+                    mw = room.game.get_match_winner() if room.game else None
+                    if mw is None and room.all_humans_ready():
+                        room.next_round()
+                        await broadcast_round_start(room)
+                    else:
+                        await room.broadcast(room.ready_payload())
+                        await room.broadcast({"type": "lobby_update", "players": (room.player_list() if room.state == "lobby" or room.game is None else room.game_players_payload()), "hostId": room.host_id})
+                else:
+                    await room.broadcast({"type": "lobby_update", "players": (room.player_list() if room.state == "lobby" or room.game is None else room.game_players_payload()), "hostId": room.host_id})
             else:
                 room.detach_player(player_id)
 

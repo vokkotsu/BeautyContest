@@ -7,6 +7,8 @@ import config
 
 
 class Room:
+    READY_COUNTDOWN = 15
+
     def __init__(self, code, host_id, single_player=False, bot_count=0):
         self.code = code
         self.host_id = host_id
@@ -22,6 +24,8 @@ class Room:
         self.pid_to_gameid = {}
         self.round_number = 0
         self.history = []  # completed round summaries
+        self.ready_ids = set()  # human pids ready for next round
+        self.auto_next_task = None
         self.lock = asyncio.Lock()
 
     def add_player(self, pid, name, ws):
@@ -43,6 +47,7 @@ class Room:
         self.players.pop(pid, None)
         self.player_ws.pop(pid, None)
         self.submissions.pop(pid, None)
+        self.ready_ids.discard(pid)
         if pid == self.host_id and self.players:
             self.host_id = next(iter(self.players))
 
@@ -106,6 +111,43 @@ class Room:
                 ids.append(b["id"])
         return ids
 
+    def active_human_ids(self):
+        return [pid for pid in self.players if not self._is_eliminated(pid)]
+
+    def cancel_auto_next(self):
+        task = self.auto_next_task
+        self.auto_next_task = None
+        if task and not task.done():
+            task.cancel()
+
+    def reset_ready_state(self):
+        self.cancel_auto_next()
+        self.ready_ids = set()
+
+    def ready_payload(self):
+        required = self.active_human_ids()
+        ready = [pid for pid in self.ready_ids if pid in required]
+        self.ready_ids = set(ready)
+        return {
+            "type": "ready_update",
+            "ready": ready,
+            "readyCount": len(ready),
+            "requiredCount": len(required),
+            "countdown": self.READY_COUNTDOWN,
+        }
+
+    def mark_ready(self, pid):
+        if self.state != "result":
+            return False
+        if pid not in self.players or self._is_eliminated(pid):
+            return False
+        self.ready_ids.add(pid)
+        return True
+
+    def all_humans_ready(self):
+        required = self.active_human_ids()
+        return len(required) > 0 and all(pid in self.ready_ids for pid in required)
+
     def start_game(self):
         if self.single_player and not self.bots:
             self.setup_bots()
@@ -118,6 +160,7 @@ class Room:
         self.current_results = None
         self.round_number = 1
         self.history = []
+        self.reset_ready_state()
         # auto-submit bots
         self._submit_bots()
 
@@ -180,7 +223,8 @@ class Room:
                 losers_ids = [gid_to_pid.get(p.id) for p in (res.get("losers") or [])]
                 mw = self.game.get_match_winner()
                 match_winner_pid = gid_to_pid.get(mw.id) if mw is not None and mw != "No One" else None
-                snapshot["result"] = {
+                game_over = match_winner_pid is not None or mw == "No One"
+                result_snapshot = {
                     "type": "round_result",
                     "round": self.round_number,
                     "avg": res.get("avg"),
@@ -191,9 +235,18 @@ class Room:
                     "winnerIds": winners_ids,
                     "loserIds": losers_ids,
                     "matchWinnerId": match_winner_pid,
-                    "gameOver": match_winner_pid is not None or mw == "No One",
+                    "gameOver": game_over,
                     "history": self.history,
                 }
+                if not game_over:
+                    required = self.active_human_ids()
+                    ready = [r for r in self.ready_ids if r in required]
+                    self.ready_ids = set(ready)
+                    result_snapshot["ready"] = ready
+                    result_snapshot["readyCount"] = len(ready)
+                    result_snapshot["requiredCount"] = len(required)
+                    result_snapshot["countdown"] = self.READY_COUNTDOWN
+                snapshot["result"] = result_snapshot
         return snapshot
 
     def calculate(self):
@@ -206,6 +259,7 @@ class Room:
         res = game.calculate_round_results()
         self.current_results = res
         self.state = "result"
+        self.ready_ids = set()
         gid_to_pid = {v: k for k, v in self.pid_to_gameid.items()}
         players_payload = self.game_players_payload()
         winners_ids = [gid_to_pid.get(p.id) for p in (res["winners"] or [])]
@@ -228,6 +282,7 @@ class Room:
         mw = game.get_match_winner()
         if mw is not None and mw != "No One":
             match_winner_pid = gid_to_pid.get(mw.id)
+        game_over = match_winner_pid is not None or mw == "No One"
         payload = {
             "type": "round_result",
             "round": self.round_number,
@@ -239,14 +294,20 @@ class Room:
             "winnerIds": winners_ids,
             "loserIds": losers_ids,
             "matchWinnerId": match_winner_pid,
-            "gameOver": match_winner_pid is not None or mw == "No One",
+            "gameOver": game_over,
             "history": self.history,
         }
+        if not game_over:
+            payload["ready"] = []
+            payload["readyCount"] = 0
+            payload["requiredCount"] = len(self.active_human_ids())
+            payload["countdown"] = self.READY_COUNTDOWN
         return payload
 
     def next_round(self):
         if self.game is None:
             return
+        self.reset_ready_state()
         self.game.reset_round()
         self.state = "playing"
         self.submissions = {}
