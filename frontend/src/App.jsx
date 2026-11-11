@@ -41,6 +41,7 @@ export default function App() {
   const [botCount, setBotCount] = useState(3);
   const [isSingle, setIsSingle] = useState(false);
   const [showHowToPlay, setShowHowToPlay] = useState(false);
+  const [showTips, setShowTips] = useState(false);
   const logicRef = useRef(null);
   const idMapRef = useRef([]);
   useEffect(() => {
@@ -386,6 +387,29 @@ export default function App() {
                   <li><span className="font-medium">4 or fewer players:</span> duplicate picks are invalid for that round.</li>
                   <li><span className="font-medium">3 or fewer players:</span> an exact hit on the rounded target is a Critical Hit (losers lose 2 points).</li>
                   <li><span className="font-medium">2 players:</span> if picks are 0 and 100, the player who picked 100 wins the round.</li>
+                </ul>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowTips((v) => !v)}
+              aria-expanded={showTips}
+              aria-controls="tips-and-tricks"
+              className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-[#663298] hover:text-[#552a80] dark:text-violet-300 dark:hover:text-violet-200 focus:outline-none focus:underline"
+            >
+              Tips &amp; Tricks
+              <span aria-hidden="true" className={`transition-transform ${showTips ? "rotate-180" : ""}`}>▾</span>
+            </button>
+            {showTips && (
+              <div
+                id="tips-and-tricks"
+                className="mt-3 text-left text-sm rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-2 animate-fade-in dark:border-[#3a2a55] dark:bg-[#1f1533]"
+              >
+                <ul className="list-disc pl-5 space-y-1">
+                  <li><span className="font-medium">Think levels ahead:</span> if everyone picks randomly (avg ~50) the target is ~40; if everyone thinks that, it drops to ~32, and so on.</li>
+                  <li><span className="font-medium">Watch the player count:</span> with ≤4 players avoid popular numbers (duplicates become invalid), and with ≤3 beware exact-target Critical Hits.</li>
+                  <li><span className="font-medium">Use history:</span> past round averages and picks hint at how your opponents reason—adapt instead of repeating.</li>
+                  <li><span className="font-medium">Mind the timer:</span> if time runs out, your previous round’s pick is reused (or a random number in round 1), so plan ahead.</li>
                 </ul>
               </div>
             )}
