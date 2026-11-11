@@ -573,7 +573,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen px-4 py-6">
-      <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-5">
+      <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-5 md:items-start">
         <div className="md:col-span-2 card p-5 animate-fade-in">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold">Round {round}</h2>
