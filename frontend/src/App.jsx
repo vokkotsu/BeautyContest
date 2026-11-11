@@ -184,7 +184,15 @@ export default function App() {
     const ws = connect((ws) => ws.send(JSON.stringify({ type: "join_room", code: joinCode.trim(), name: name.trim() })));
     if (!ws) return;
   };
-  const startGame = () => {
+  const submittedSet = new Set(submitted);
+  const readySet = new Set(readyState.ready || []);
+  const gamePlayers = result
+    ? result.players
+    : players.map((p) => ({ id: p.id, name: p.name, choice: null, score: p.score ?? 0, isEliminated: !!p.isEliminated, isBot: !!p.isBot }));
+  const me = gamePlayers.find((p) => p.id === playerId);
+  const iAmEliminated = !!me?.isEliminated;
+
+  const startGame = useCallback(() => {
     if (isSingle) {
       const names = players.map((p) => p.name);
       const ids = players.map((p) => p.id);
@@ -200,7 +208,7 @@ export default function App() {
           submittedIds.push(ids[i]);
         }
       }
-      const gamePlayers = logic.players.map((p, i) => ({
+      const gp = logic.players.map((p, i) => ({
         id: ids[i],
         name: p.name,
         score: p.score,
@@ -208,7 +216,7 @@ export default function App() {
         choice: p.lastChoice,
         isBot: i > 0,
       }));
-      setPlayers(gamePlayers);
+      setPlayers(gp);
       setSubmitted(submittedIds);
       setSubmittedSelf(false);
       setResult(null);
@@ -222,8 +230,9 @@ export default function App() {
       return;
     }
     wsRef.current?.send(JSON.stringify({ type: "start_game" }));
-  };
-  const submit = (picked) => {
+  }, [isSingle, players]);
+
+  const submit = useCallback((picked) => {
     const raw = picked !== undefined ? picked : value;
     const v = parseFloat(raw);
     if (isNaN(v)) { setError("Select a number 0-100"); return; }
@@ -235,6 +244,7 @@ export default function App() {
       if (submittedSelf) return;
       const logic = logicRef.current;
       const ids = idMapRef.current;
+      if (!logic || !ids) return;
       logic.players[0].lastChoice = v;
       const newSubmitted = [...submitted, "me"];
       setSubmitted(newSubmitted);
@@ -253,8 +263,8 @@ export default function App() {
         }));
         setPlayers(updated);
         const mw = logic.getMatchWinner();
-        const matchWinnerId = mw && mw !== "No One" ? ids[mw.id - 1] : null;
-        const gameOver = matchWinnerId !== null || mw === "No One";
+        const mwId = mw && mw !== "No One" ? ids[mw.id - 1] : null;
+        const over = mwId !== null || mw === "No One";
         const winnerIds = (res.winners || []).map((p) => ids[p.id - 1]);
         const loserIds = (res.losers || []).map((p) => ids[p.id - 1]);
         const historyEntry = {
@@ -280,23 +290,25 @@ export default function App() {
           players: updated,
           winnerIds,
           loserIds,
-          matchWinnerId,
-          gameOver,
+          matchWinnerId: mwId,
+          gameOver: over,
           history: nextHistory,
         });
-        setGameOver(gameOver);
-        setMatchWinnerId(matchWinnerId);
+        setGameOver(over);
+        setMatchWinnerId(mwId);
         setPickCountdownLeft(null);
       }
       return;
     }
     wsRef.current?.send(JSON.stringify({ type: "submit", value: v }));
     setSubmittedSelf(true);
-  };
-  const nextRound = () => {
+  }, [value, isSingle, submittedSelf, submitted, round, history]);
+
+  const nextRound = useCallback(() => {
     if (isSingle) {
       const logic = logicRef.current;
       const ids = idMapRef.current;
+      if (!logic || !ids) return;
       // reset round (no-op for logic, just clear submissions)
       const submittedIds = [];
       for (let i = 1; i < ids.length; i++) {
@@ -316,7 +328,7 @@ export default function App() {
     if (readySent) return;
     setReadySent(true);
     wsRef.current?.send(JSON.stringify({ type: "ready_next" }));
-  };
+  }, [isSingle, readySent]);
 
   useEffect(() => {
     if (!session || isSingle) return;
@@ -346,10 +358,7 @@ export default function App() {
     }
     const t = setTimeout(() => setPickCountdownLeft((s) => (s == null ? s : Math.max(0, s - 1))), 1000);
     return () => clearTimeout(t);
-  }, [screen, result, pickCountdownLeft, submittedSelf, iAmEliminated]);
-
-  const submittedSet = new Set(submitted);
-  const readySet = new Set(readyState.ready || []);
+  }, [screen, result, pickCountdownLeft, submittedSelf, iAmEliminated, submit]);
 
   if (screen === "landing") {
     return (
@@ -547,12 +556,9 @@ export default function App() {
     );
   }
 
-  const gamePlayers = result ? result.players : players.map((p) => ({ id: p.id, name: p.name, choice: null, score: p.score ?? 0, isEliminated: !!p.isEliminated }));
   const winnerNames = result ? result.players.filter((p) => result.winnerIds?.includes(p.id)).map((p) => p.name) : [];
   const activePlayers = gamePlayers.filter((p) => !p.isEliminated);
   const activeCount = activePlayers.length;
-  const me = gamePlayers.find((p) => p.id === playerId);
-  const iAmEliminated = !!me?.isEliminated;
   const effectiveSubmittedSelf = submittedSelf || (!!me && !me.isEliminated && !result && submittedSet.has(playerId));
   const activeRules = [];
   if (activeCount === 2) {
