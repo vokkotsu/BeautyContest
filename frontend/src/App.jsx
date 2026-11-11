@@ -31,6 +31,7 @@ export default function App() {
   const [readySent, setReadySent] = useState(false);
   const [pickCountdownLeft, setPickCountdownLeft] = useState(null);
   const lastPickRef = useRef(null);
+  const [historyPage, setHistoryPage] = useState(0);
   const [session, setSession] = useState(() => {
     try { return JSON.parse(localStorage.getItem("bc-session") || "null"); } catch { return null; }
   });
@@ -83,7 +84,7 @@ export default function App() {
         case "joined":
           setPlayerId(msg.playerId); setRoomCode(msg.code); setIsHost(msg.isHost); setPlayers(msg.players || []); setScreen("lobby"); setHistory([]); setResult(null); setSubmitted([]); setSubmittedSelf(false);
           setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 }); setCountdownLeft(null); setReadySent(false);
-          setPickCountdownLeft(null); lastPickRef.current = null;
+          setPickCountdownLeft(null); lastPickRef.current = null; setHistoryPage(0);
           setSession({ code: msg.code, playerId: msg.playerId, name: msg.name || name });
           break;
         case "lobby_update":
@@ -93,7 +94,7 @@ export default function App() {
         case "game_started":
           setScreen("game"); setRound(msg.round || 1); setSubmitted([]); setSubmittedSelf(false); setResult(null); setGameOver(false); setMatchWinnerId(null); setValue(""); setError(""); setHistory(msg.history || []);
           setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 }); setCountdownLeft(null); setReadySent(false);
-          setPickCountdownLeft(msg.pickCountdown ?? 60); lastPickRef.current = null;
+          setPickCountdownLeft(msg.pickCountdown ?? 60); lastPickRef.current = null; setHistoryPage(0);
           break;
         case "round_start":
           setSubmitted(msg.submitted || []); setSubmittedSelf(false); setResult(null); setGameOver(false); setMatchWinnerId(null); setValue(""); setError(""); if (msg.round) setRound(msg.round); if (msg.history) setHistory(msg.history);
@@ -103,7 +104,8 @@ export default function App() {
         case "submission_update":
           setSubmitted(msg.submitted || []); break;
         case "round_result":
-          setResult(msg); setPlayers(msg.players || []); setSubmitted(msg.submitted || []); setGameOver(!!msg.gameOver); setMatchWinnerId(msg.matchWinnerId); if (msg.history) setHistory(msg.history);
+          setResult(msg); setPlayers(msg.players || []); setSubmitted(msg.submitted || []); setGameOver(!!msg.gameOver); setMatchWinnerId(msg.matchWinnerId);
+          if (msg.history) { setHistory(msg.history); setHistoryPage(Math.max(0, msg.history.length - 1)); }
           setPickCountdownLeft(null);
           if (!msg.gameOver) applyReady(msg); else { setCountdownLeft(null); setReadySent(false); }
           break;
@@ -132,6 +134,7 @@ export default function App() {
               setResult(msg.result); setGameOver(!!msg.result.gameOver); setMatchWinnerId(msg.result.matchWinnerId);
               setSubmittedSelf(false);
               setPickCountdownLeft(null);
+              if (msg.history) setHistoryPage(Math.max(0, msg.history.length - 1));
               if (!msg.result.gameOver) applyReady(msg.result); else { setCountdownLeft(null); setReadySent(false); }
             } else {
               setResult(null); setGameOver(false); setMatchWinnerId(null);
@@ -223,6 +226,7 @@ export default function App() {
       setGameOver(false);
       setMatchWinnerId(null);
       setHistory([]);
+      setHistoryPage(0);
       setRound(1);
       setPickCountdownLeft(60);
       lastPickRef.current = null;
@@ -280,6 +284,7 @@ export default function App() {
         };
         const nextHistory = [...history, historyEntry];
         setHistory(nextHistory);
+        setHistoryPage(nextHistory.length - 1);
         setResult({
           type: "round_result",
           round,
@@ -774,17 +779,55 @@ export default function App() {
           </div>
 
           <div className="card p-5 animate-fade-in" style={{ animationDelay: "90ms" }}>
-            <h3 className="font-bold mb-3">Session History</h3>
+            <div className="flex items-center justify-between mb-3 gap-2">
+              <h3 className="font-bold">Session History</h3>
+              {history.length > 0 && (
+                <span className="text-xs text-gray-500 dark:text-[#a89fc0]">
+                  {Math.min(historyPage + 1, history.length)}/{history.length}
+                </span>
+              )}
+            </div>
             {history.length === 0 ? (
               <p className="text-sm text-gray-500 dark:text-[#a89fc0]">No completed rounds yet.</p>
-            ) : (
-              <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
-                {[...history].reverse().map((h) => (
-                  <div key={h.round} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm dark:border-[#3a2a55] dark:bg-[#1f1533]">
+            ) : (() => {
+              const safePage = Math.min(Math.max(historyPage, 0), history.length - 1);
+              const h = history[safePage];
+              return (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setHistoryPage((p) => Math.max(0, Math.min(p, history.length - 1) - 1))}
+                      disabled={safePage === 0}
+                      className="px-2.5 py-1 text-xs rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed dark:border-[#3a2a55] dark:bg-[#251a3a] dark:hover:bg-[#2f2148]"
+                    >
+                      ← Prev
+                    </button>
+                    <span className="text-xs font-medium text-gray-600 dark:text-[#cfc6df]">Round {h.round}</span>
+                    <button
+                      type="button"
+                      onClick={() => setHistoryPage((p) => Math.min(history.length - 1, Math.min(p, history.length - 1) + 1))}
+                      disabled={safePage === history.length - 1}
+                      className="px-2.5 py-1 text-xs rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed dark:border-[#3a2a55] dark:bg-[#251a3a] dark:hover:bg-[#2f2148]"
+                    >
+                      Next →
+                    </button>
+                  </div>
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm dark:border-[#3a2a55] dark:bg-[#1f1533]">
                     <div className="flex items-center justify-between mb-1.5">
                       <span className="font-semibold">Round {h.round}</span>
                       <span className="text-xs text-gray-500 dark:text-[#a89fc0]">Avg {Number(h.avg).toFixed(2)} · Target {Number(h.target).toFixed(2)}</span>
                     </div>
+                    {(() => {
+                      const roundWinnerNames = (h.picks || [])
+                        .filter((p) => (h.winnerIds || []).includes(p.id))
+                        .map((p) => p.name);
+                      return roundWinnerNames.length > 0 ? (
+                        <p className="text-emerald-600 dark:text-emerald-400 font-semibold mb-1.5">Winner: {roundWinnerNames.join(", ")}</p>
+                      ) : (
+                        <p className="text-blue-600 dark:text-blue-400 font-semibold mb-1.5">No Winner</p>
+                      );
+                    })()}
                     <ul className="space-y-0.5">
                       {(h.picks || []).map((p) => (
                         <li key={p.id} className="flex justify-between gap-2">
@@ -799,9 +842,9 @@ export default function App() {
                       </ul>
                     )}
                   </div>
-                ))}
-              </div>
-            )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>
