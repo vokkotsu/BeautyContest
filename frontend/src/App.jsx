@@ -35,6 +35,7 @@ export default function App() {
   const [mode, setMode] = useState(null); // null | 'single' | 'multi'
   const [botCount, setBotCount] = useState(3);
   const [isSingle, setIsSingle] = useState(false);
+  const [showHowToPlay, setShowHowToPlay] = useState(false);
   const logicRef = useRef(null);
   const idMapRef = useRef([]);
   useEffect(() => {
@@ -292,6 +293,31 @@ export default function App() {
           <div className="mb-6 text-center">
             <h1 className="text-3xl font-bold tracking-tight">Beauty Contest</h1>
             <p className="mt-2 text-sm text-gray-500 dark:text-[#a89fc0]">Guess 2/3 of the average. Last one standing wins.</p>
+            <button
+              type="button"
+              onClick={() => setShowHowToPlay((v) => !v)}
+              aria-expanded={showHowToPlay}
+              aria-controls="how-to-play"
+              className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-[#663298] hover:text-[#552a80] dark:text-violet-300 dark:hover:text-violet-200 focus:outline-none focus:underline"
+            >
+              How to Play
+              <span aria-hidden="true" className={`transition-transform ${showHowToPlay ? "rotate-180" : ""}`}>▾</span>
+            </button>
+            {showHowToPlay && (
+              <div
+                id="how-to-play"
+                className="mt-3 text-left text-sm rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-2 animate-fade-in dark:border-[#3a2a55] dark:bg-[#1f1533]"
+              >
+                <p><span className="font-semibold">Goal:</span> Pick a number from 0–100. The target is the average of all picks × 0.8 — get closest to the target to win the round.</p>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>Everyone starts at 0 points. Round losers lose 1 point; reach -10 and you're eliminated.</li>
+                  <li>Last player standing wins the match.</li>
+                  <li><span className="font-medium">4 or fewer players:</span> duplicate picks are invalid for that round.</li>
+                  <li><span className="font-medium">3 or fewer players:</span> an exact hit on the rounded target is a Critical Hit (losers lose 2 points).</li>
+                  <li><span className="font-medium">2 players:</span> if picks are 0 and 100, the player who picked 100 wins the round.</li>
+                </ul>
+              </div>
+            )}
           </div>
 
           <div className="mb-5">
