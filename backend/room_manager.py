@@ -1,6 +1,7 @@
 import asyncio
 import random
 import string
+import time
 import uuid
 from game_logic import BeautyContestLogic
 import config
@@ -8,6 +9,7 @@ import config
 
 class Room:
     READY_COUNTDOWN = 15
+    PICK_COUNTDOWN = 60
 
     def __init__(self, code, host_id, single_player=False, bot_count=0):
         self.code = code
@@ -26,6 +28,8 @@ class Room:
         self.history = []  # completed round summaries
         self.ready_ids = set()  # human pids ready for next round
         self.auto_next_task = None
+        self.pick_task = None
+        self.pick_deadline = None
         self.lock = asyncio.Lock()
 
     def add_player(self, pid, name, ws):
@@ -120,9 +124,51 @@ class Room:
         if task and not task.done():
             task.cancel()
 
+    def cancel_pick_timer(self):
+        task = self.pick_task
+        self.pick_task = None
+        self.pick_deadline = None
+        if task and not task.done():
+            task.cancel()
+
     def reset_ready_state(self):
         self.cancel_auto_next()
         self.ready_ids = set()
+
+    def pick_seconds_left(self):
+        if self.pick_deadline is None:
+            return None
+        return max(0, int(round(self.pick_deadline - time.monotonic())))
+
+    def start_pick_timer(self):
+        self.pick_deadline = time.monotonic() + self.PICK_COUNTDOWN
+
+    def previous_choice_for(self, pid):
+        gid = self.pid_to_gameid.get(pid)
+        if gid is None or self.game is None:
+            return None
+        for p in self.game.players:
+            if p.id == gid:
+                val = p.last_choice
+                if val is None:
+                    return None
+                try:
+                    return float(val)
+                except (TypeError, ValueError):
+                    return None
+        return None
+
+    def auto_pick_missing(self):
+        changed = False
+        for pid in self.active_human_ids():
+            if pid in self.submissions:
+                continue
+            prev = self.previous_choice_for(pid)
+            if prev is None:
+                prev = float(random.randint(0, 100))
+            self.submissions[pid] = max(0.0, min(100.0, prev))
+            changed = True
+        return changed
 
     def ready_payload(self):
         required = self.active_human_ids()
@@ -161,6 +207,8 @@ class Room:
         self.round_number = 1
         self.history = []
         self.reset_ready_state()
+        self.cancel_pick_timer()
+        self.start_pick_timer()
         # auto-submit bots
         self._submit_bots()
 
@@ -212,6 +260,9 @@ class Room:
             "history": self.history,
             "submitted": list(self.submissions.keys()),
         }
+        if self.state == "playing":
+            snapshot["pickCountdown"] = self.pick_seconds_left() if self.pick_seconds_left() is not None else self.PICK_COUNTDOWN
+            snapshot["pickDeadline"] = self.PICK_COUNTDOWN
         if self.state == "lobby" or self.game is None:
             snapshot["players"] = self.player_list()
         else:
@@ -250,6 +301,7 @@ class Room:
         return snapshot
 
     def calculate(self):
+        self.cancel_pick_timer()
         game = self.game
         for pid, val in self.submissions.items():
             gid = self.pid_to_gameid.get(pid)
@@ -308,11 +360,13 @@ class Room:
         if self.game is None:
             return
         self.reset_ready_state()
+        self.cancel_pick_timer()
         self.game.reset_round()
         self.state = "playing"
         self.submissions = {}
         self.current_results = None
         self.round_number += 1
+        self.start_pick_timer()
         self._submit_bots()
 
 

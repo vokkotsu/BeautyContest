@@ -29,6 +29,8 @@ export default function App() {
   const [readyState, setReadyState] = useState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 });
   const [countdownLeft, setCountdownLeft] = useState(null);
   const [readySent, setReadySent] = useState(false);
+  const [pickCountdownLeft, setPickCountdownLeft] = useState(null);
+  const lastPickRef = useRef(null);
   const [session, setSession] = useState(() => {
     try { return JSON.parse(localStorage.getItem("bc-session") || "null"); } catch { return null; }
   });
@@ -80,6 +82,7 @@ export default function App() {
         case "joined":
           setPlayerId(msg.playerId); setRoomCode(msg.code); setIsHost(msg.isHost); setPlayers(msg.players || []); setScreen("lobby"); setHistory([]); setResult(null); setSubmitted([]); setSubmittedSelf(false);
           setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 }); setCountdownLeft(null); setReadySent(false);
+          setPickCountdownLeft(null); lastPickRef.current = null;
           setSession({ code: msg.code, playerId: msg.playerId, name: msg.name || name });
           break;
         case "lobby_update":
@@ -89,15 +92,18 @@ export default function App() {
         case "game_started":
           setScreen("game"); setRound(msg.round || 1); setSubmitted([]); setSubmittedSelf(false); setResult(null); setGameOver(false); setMatchWinnerId(null); setValue(""); setError(""); setHistory(msg.history || []);
           setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 }); setCountdownLeft(null); setReadySent(false);
+          setPickCountdownLeft(msg.pickCountdown ?? 60); lastPickRef.current = null;
           break;
         case "round_start":
           setSubmitted(msg.submitted || []); setSubmittedSelf(false); setResult(null); setGameOver(false); setMatchWinnerId(null); setValue(""); setError(""); if (msg.round) setRound(msg.round); if (msg.history) setHistory(msg.history);
           setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 }); setCountdownLeft(null); setReadySent(false);
+          setPickCountdownLeft(msg.pickCountdown ?? 60);
           break;
         case "submission_update":
           setSubmitted(msg.submitted || []); break;
         case "round_result":
           setResult(msg); setPlayers(msg.players || []); setSubmitted(msg.submitted || []); setGameOver(!!msg.gameOver); setMatchWinnerId(msg.matchWinnerId); if (msg.history) setHistory(msg.history);
+          setPickCountdownLeft(null);
           if (!msg.gameOver) applyReady(msg); else { setCountdownLeft(null); setReadySent(false); }
           break;
         case "ready_update":
@@ -124,10 +130,12 @@ export default function App() {
             if (msg.state === "result" && msg.result) {
               setResult(msg.result); setGameOver(!!msg.result.gameOver); setMatchWinnerId(msg.result.matchWinnerId);
               setSubmittedSelf(false);
+              setPickCountdownLeft(null);
               if (!msg.result.gameOver) applyReady(msg.result); else { setCountdownLeft(null); setReadySent(false); }
             } else {
               setResult(null); setGameOver(false); setMatchWinnerId(null);
               setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 }); setCountdownLeft(null); setReadySent(false);
+              setPickCountdownLeft(msg.pickCountdown ?? 60);
               const meP = (msg.players || []).find((p) => p.id === pid);
               setSubmittedSelf(!!(meP && !meP.isEliminated && (msg.submitted || []).includes(pid)));
             }
@@ -207,6 +215,8 @@ export default function App() {
       setMatchWinnerId(null);
       setHistory([]);
       setRound(1);
+      setPickCountdownLeft(60);
+      lastPickRef.current = null;
       setScreen("game");
       return;
     }
@@ -219,6 +229,7 @@ export default function App() {
     if (v < 0 || v > 100) { setError("Number must be 0-100"); return; }
     setError("");
     setValue(String(v));
+    lastPickRef.current = v;
     if (isSingle) {
       if (submittedSelf) return;
       const logic = logicRef.current;
@@ -274,6 +285,7 @@ export default function App() {
         });
         setGameOver(gameOver);
         setMatchWinnerId(matchWinnerId);
+        setPickCountdownLeft(null);
       }
       return;
     }
@@ -296,6 +308,7 @@ export default function App() {
       setSubmitted(submittedIds);
       setSubmittedSelf(false);
       setResult(null);
+      setPickCountdownLeft(60);
       setRound((r) => r + 1);
       return;
     }
@@ -320,6 +333,19 @@ export default function App() {
     const t = setTimeout(() => setCountdownLeft((s) => (s == null ? s : Math.max(0, s - 1))), 1000);
     return () => clearTimeout(t);
   }, [result, gameOver, countdownLeft]);
+
+  useEffect(() => {
+    if (screen !== "game" || result || pickCountdownLeft == null) return;
+    if (pickCountdownLeft <= 0) {
+      if (!submittedSelf && !iAmEliminated) {
+        const fallback = lastPickRef.current != null ? lastPickRef.current : Math.floor(Math.random() * 101);
+        submit(fallback);
+      }
+      return;
+    }
+    const t = setTimeout(() => setPickCountdownLeft((s) => (s == null ? s : Math.max(0, s - 1))), 1000);
+    return () => clearTimeout(t);
+  }, [screen, result, pickCountdownLeft, submittedSelf, iAmEliminated]);
 
   const submittedSet = new Set(submitted);
   const readySet = new Set(readyState.ready || []);
@@ -545,7 +571,21 @@ export default function App() {
 
           {!effectiveSubmittedSelf && !result && !iAmEliminated && (
             <div className="mb-5">
-              <p className="block text-sm font-medium mb-2">Pick your number (0–100)</p>
+              <div className="flex items-center justify-between mb-2 gap-3">
+                <p className="block text-sm font-medium">Pick your number (0–100)</p>
+                {pickCountdownLeft != null && (
+                  <div
+                    className={`px-3 py-1 rounded-lg text-sm font-mono font-bold border transition-colors ${
+                      pickCountdownLeft <= 10
+                        ? "text-red-600 border-red-400 bg-red-50 shadow-[0_0_12px_rgba(239,68,68,0.7)] animate-pulse dark:bg-red-900/30 dark:text-red-300 dark:border-red-500"
+                        : "text-slate-700 border-gray-200 bg-white dark:text-slate-100 dark:bg-[#251a3a] dark:border-[#3a2a55]"
+                    }`}
+                    aria-live="polite"
+                  >
+                    {pickCountdownLeft}s
+                  </div>
+                )}
+              </div>
               <div className="grid grid-cols-10 sm:grid-cols-[repeat(20,minmax(0,1fr))] gap-1.5 max-h-80 overflow-y-auto p-1 rounded-xl border border-gray-100 bg-gray-50 dark:bg-[#1f1533] dark:border-[#3a2a55]">
                 {Array.from({ length: 101 }, (_, n) => (
                   <button

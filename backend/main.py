@@ -23,7 +23,40 @@ async def broadcast_round_start(room):
         "submitted": list(room.submissions.keys()),
         "round": room.round_number,
         "history": room.history,
+        "pickCountdown": room.PICK_COUNTDOWN,
     })
+
+
+async def finish_round_if_ready(room):
+    if room.state != "playing" or not room.all_submitted():
+        return False
+    payload = room.calculate()
+    await room.broadcast(payload)
+    if not payload.get("gameOver"):
+        schedule_auto_next_round(room)
+    return True
+
+
+def schedule_pick_timeout(room):
+    room.cancel_pick_timer()
+
+    async def _pick_timeout():
+        try:
+            await asyncio.sleep(room.PICK_COUNTDOWN)
+            async with room.lock:
+                if room.state != "playing":
+                    return
+                changed = room.auto_pick_missing()
+                if changed:
+                    await room.broadcast({"type": "submission_update", "submitted": list(room.submissions.keys())})
+                await finish_round_if_ready(room)
+        except asyncio.CancelledError:
+            return
+        finally:
+            if room.pick_task is asyncio.current_task():
+                room.pick_task = None
+
+    room.pick_task = asyncio.create_task(_pick_timeout())
 
 
 def schedule_auto_next_round(room):
@@ -144,7 +177,8 @@ async def websocket_endpoint(ws: WebSocket):
                     room.start_game()
                     await room.broadcast({"type": "game_started", "round": room.round_number, "history": room.history})
                     # bots already submitted inside start_game; broadcast state
-                    await room.broadcast({"type": "round_start", "submitted": list(room.submissions.keys()), "round": room.round_number, "history": room.history})
+                    await broadcast_round_start(room)
+                    schedule_pick_timeout(room)
 
                 elif t == "submit":
                     if room.state != "playing":
@@ -163,11 +197,7 @@ async def websocket_endpoint(ws: WebSocket):
                     room.submit(player_id, val)
                     submitted_ids = list(room.submissions.keys())
                     await room.broadcast({"type": "submission_update", "submitted": submitted_ids})
-                    if room.all_submitted():
-                        payload = room.calculate()
-                        await room.broadcast(payload)
-                        if not payload.get("gameOver"):
-                            schedule_auto_next_round(room)
+                    await finish_round_if_ready(room)
 
                 elif t == "ready_next":
                     if room.state != "result":
@@ -179,6 +209,7 @@ async def websocket_endpoint(ws: WebSocket):
                     if changed and room.all_humans_ready():
                         room.next_round()
                         await broadcast_round_start(room)
+                        schedule_pick_timeout(room)
                     elif changed:
                         await room.broadcast(room.ready_payload())
 
@@ -193,6 +224,7 @@ async def websocket_endpoint(ws: WebSocket):
                         continue
                     room.next_round()
                     await broadcast_round_start(room)
+                    schedule_pick_timeout(room)
 
                 elif t == "leave":
                     explicit_leave = True
@@ -224,6 +256,9 @@ async def websocket_endpoint(ws: WebSocket):
                     await room.broadcast({"type": "lobby_update", "players": (room.player_list() if room.state == "lobby" or room.game is None else room.game_players_payload()), "hostId": room.host_id})
             else:
                 room.detach_player(player_id)
+                if room.state == "playing":
+                    async with room.lock:
+                        await finish_round_if_ready(room)
 
 
 if __name__ == "__main__":
