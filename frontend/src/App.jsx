@@ -1,14 +1,36 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { BeautyContestLogic } from "./gameLogic";
 
-const WS_URL =
-  import.meta.env.VITE_WS_URL ||
-  (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-    ? "ws://localhost:8000/ws"
-    : "");
+const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
+const POLL_INTERVAL_MS = 1200;
+
+async function api(path, { method = "GET", body } = {}) {
+  const opts = {
+    method,
+    headers: { "Content-Type": "application/json" },
+  };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const res = await fetch(`${API_BASE}${path}`, opts);
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    throw new Error("Invalid server response");
+  }
+  if (!res.ok && data && data.type === "error") {
+    throw new Error(data.message || "Request failed");
+  }
+  if (data && data.type === "error") {
+    throw new Error(data.message || "Request failed");
+  }
+  if (!res.ok) {
+    throw new Error((data && data.message) || `Request failed (${res.status})`);
+  }
+  return data;
+}
 
 export default function App() {
-  const wsRef = useRef(null);
   const [screen, setScreen] = useState("landing");
   const [name, setName] = useState("");
   const [joinCode, setJoinCode] = useState("");
@@ -45,6 +67,10 @@ export default function App() {
   const [showTips, setShowTips] = useState(false);
   const logicRef = useRef(null);
   const idMapRef = useRef([]);
+  const sessionRef = useRef(session);
+
+  useEffect(() => { sessionRef.current = session; }, [session]);
+
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
     try { localStorage.setItem("bc-dark", dark ? "1" : "0"); } catch {}
@@ -57,111 +83,127 @@ export default function App() {
     } catch {}
   }, [session]);
 
-  const connect = useCallback((onOpen) => {
-    if (!WS_URL) {
-      setError("Backend WebSocket URL is not configured. Set VITE_WS_URL for deployed builds.");
-      return null;
+  const applyServerState = useCallback((msg) => {
+    if (!msg) return;
+
+    if (msg.type === "session_invalid") {
+      setSession(null);
+      setIsSingle(false);
+      setPlayerId(null);
+      setRoomCode(null);
+      setError(msg.message || "Session expired. Please join again.");
+      setScreen("landing");
+      return;
     }
-    const ws = new WebSocket(WS_URL);
-    wsRef.current = ws;
-    ws.onopen = () => { if (onOpen) onOpen(ws); };
-    ws.onerror = () => { setError("Could not connect to the game server. Check that the backend is running and VITE_WS_URL is correct."); };
-    ws.onmessage = (ev) => {
-      let msg; try { msg = JSON.parse(ev.data); } catch { return; }
-      const applyReady = (payload) => {
-        const countdown = payload?.countdown ?? 15;
-        setReadyState({
-          ready: payload?.ready || [],
-          readyCount: payload?.readyCount ?? (payload?.ready ? payload.ready.length : 0),
-          requiredCount: payload?.requiredCount ?? 0,
-          countdown,
-        });
-        setCountdownLeft(payload?.gameOver ? null : countdown);
-        setReadySent(false);
-      };
+    if (msg.type === "error") {
+      setError(msg.message || "Something went wrong");
+      return;
+    }
 
-      switch (msg.type) {
-        case "joined":
-          setPlayerId(msg.playerId); setRoomCode(msg.code); setIsHost(msg.isHost); setPlayers(msg.players || []); setScreen("lobby"); setHistory([]); setResult(null); setSubmitted([]); setSubmittedSelf(false);
-          setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 }); setCountdownLeft(null); setReadySent(false);
-          setPickCountdownLeft(null); lastPickRef.current = null; setHistoryPage(0);
-          setSession({ code: msg.code, playerId: msg.playerId, name: msg.name || name });
-          break;
-        case "lobby_update":
-          setPlayers(msg.players || []); setHostId(msg.hostId);
-          if (msg.hostId && (session?.playerId || playerId)) setIsHost(msg.hostId === (session?.playerId || playerId));
-          break;
-        case "game_started":
-          setScreen("game"); setRound(msg.round || 1); setSubmitted([]); setSubmittedSelf(false); setResult(null); setGameOver(false); setMatchWinnerId(null); setValue(""); setError(""); setHistory(msg.history || []);
-          setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 }); setCountdownLeft(null); setReadySent(false);
-          setPickCountdownLeft(msg.pickCountdown ?? 60); lastPickRef.current = null; setHistoryPage(0);
-          break;
-        case "round_start":
-          setSubmitted(msg.submitted || []); setSubmittedSelf(false); setResult(null); setGameOver(false); setMatchWinnerId(null); setValue(""); setError(""); if (msg.round) setRound(msg.round); if (msg.history) setHistory(msg.history);
-          setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 }); setCountdownLeft(null); setReadySent(false);
-          setPickCountdownLeft(msg.pickCountdown ?? 60);
-          break;
-        case "submission_update":
-          setSubmitted(msg.submitted || []); break;
-        case "round_result":
-          setResult(msg); setPlayers(msg.players || []); setSubmitted(msg.submitted || []); setGameOver(!!msg.gameOver); setMatchWinnerId(msg.matchWinnerId);
-          if (msg.history) { setHistory(msg.history); setHistoryPage(Math.max(0, msg.history.length - 1)); }
-          setPickCountdownLeft(null);
-          if (!msg.gameOver) applyReady(msg); else { setCountdownLeft(null); setReadySent(false); }
-          break;
-        case "ready_update":
-          if (!gameOver) {
-            setReadyState((prev) => ({
-              ...prev,
-              ready: msg.ready || [],
-              readyCount: msg.readyCount ?? (msg.ready ? msg.ready.length : 0),
-              requiredCount: msg.requiredCount ?? prev.requiredCount,
-              countdown: msg.countdown ?? prev.countdown ?? 15,
-            }));
-          }
-          break;
-        case "state_sync": {
-          const pid = msg.playerId;
-          setPlayerId(pid); setRoomCode(msg.code); setIsHost(!!msg.isHost); setHostId(msg.hostId || null);
-          setPlayers(msg.players || []); setRound(msg.round || 1); setHistory(msg.history || []);
-          setSubmitted(msg.submitted || []); setSession({ code: msg.code, playerId: pid, name: session?.name || name });
-          if (msg.state === "lobby") {
-            setScreen("lobby"); setResult(null); setGameOver(false); setMatchWinnerId(null); setSubmittedSelf(false);
-            setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 }); setCountdownLeft(null); setReadySent(false);
-          } else {
-            setScreen("game");
-            if (msg.state === "result" && msg.result) {
-              setResult(msg.result); setGameOver(!!msg.result.gameOver); setMatchWinnerId(msg.result.matchWinnerId);
-              setSubmittedSelf(false);
-              setPickCountdownLeft(null);
-              if (msg.history) setHistoryPage(Math.max(0, msg.history.length - 1));
-              if (!msg.result.gameOver) applyReady(msg.result); else { setCountdownLeft(null); setReadySent(false); }
-            } else {
-              setResult(null); setGameOver(false); setMatchWinnerId(null);
-              setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 }); setCountdownLeft(null); setReadySent(false);
-              setPickCountdownLeft(msg.pickCountdown ?? 60);
-              const meP = (msg.players || []).find((p) => p.id === pid);
-              setSubmittedSelf(!!(meP && !meP.isEliminated && (msg.submitted || []).includes(pid)));
-            }
-          }
-          break;
-        }
-        case "session_invalid":
-          setSession(null); setError(msg.message || "Session expired. Please join again."); setScreen("landing");
-          break;
-        case "error":
-          setError(msg.message); break;
-        default: break;
+    if (msg.type === "joined") {
+      const pid = msg.playerId;
+      setPlayerId(pid);
+      setRoomCode(msg.code);
+      setIsHost(!!msg.isHost);
+      setPlayers(msg.players || []);
+      setHostId(msg.isHost ? pid : null);
+      setScreen("lobby");
+      setHistory([]);
+      setResult(null);
+      setSubmitted([]);
+      setSubmittedSelf(false);
+      setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 });
+      setCountdownLeft(null);
+      setReadySent(false);
+      setPickCountdownLeft(null);
+      lastPickRef.current = null;
+      setHistoryPage(0);
+      setRound(1);
+      setGameOver(false);
+      setMatchWinnerId(null);
+      setIsSingle(false);
+      setSession({ code: msg.code, playerId: pid, name: msg.name || name });
+      return;
+    }
+
+    if (msg.type === "state_sync") {
+      const pid = msg.playerId || sessionRef.current?.playerId || null;
+      if (msg.playerId) setPlayerId(msg.playerId);
+      if (msg.code) setRoomCode(msg.code);
+      if (typeof msg.isHost === "boolean") setIsHost(msg.isHost);
+      if (msg.hostId !== undefined) setHostId(msg.hostId || null);
+      setPlayers(msg.players || []);
+      if (msg.round != null) setRound(msg.round);
+      if (Array.isArray(msg.history)) {
+        setHistory(msg.history);
       }
-    };
-    return ws;
-  }, []);
+      setSubmitted(msg.submitted || []);
+      if (msg.code && pid) {
+        setSession({ code: msg.code, playerId: pid, name: sessionRef.current?.name || name });
+      }
 
-  const createRoom = () => {
+      if (msg.state === "lobby") {
+        setScreen("lobby");
+        setResult(null);
+        setGameOver(false);
+        setMatchWinnerId(null);
+        setSubmittedSelf(false);
+        setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 });
+        setCountdownLeft(null);
+        setReadySent(false);
+        setPickCountdownLeft(null);
+      } else {
+        setScreen("game");
+        if (msg.state === "result" && msg.result) {
+          const r = msg.result;
+          setResult(r);
+          setPlayers(r.players || msg.players || []);
+          setGameOver(!!r.gameOver);
+          setMatchWinnerId(r.matchWinnerId || null);
+          setSubmittedSelf(false);
+          setPickCountdownLeft(null);
+          if (Array.isArray(r.history || msg.history)) {
+            const h = r.history || msg.history || [];
+            setHistory(h);
+            setHistoryPage(h.length > 0 ? h.length - 1 : 0);
+          }
+          if (!r.gameOver) {
+            const countdown = r.countdown ?? 15;
+            setReadyState({
+              ready: r.ready || [],
+              readyCount: r.readyCount ?? (r.ready ? r.ready.length : 0),
+              requiredCount: r.requiredCount ?? 0,
+              countdown,
+            });
+            setCountdownLeft(countdown);
+            setReadySent((r.ready || []).includes(pid));
+          } else {
+            setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 });
+            setCountdownLeft(null);
+            setReadySent(false);
+          }
+        } else {
+          // playing
+          setResult(null);
+          setGameOver(false);
+          setMatchWinnerId(null);
+          setReadyState({ ready: [], readyCount: 0, requiredCount: 0, countdown: 15 });
+          setCountdownLeft(null);
+          setReadySent(false);
+          setPickCountdownLeft(msg.pickCountdown != null ? msg.pickCountdown : 60);
+          const meP = (msg.players || []).find((p) => p.id === pid);
+          const hasSubmitted = !!(pid && (msg.submitted || []).includes(pid));
+          setSubmittedSelf(!!(hasSubmitted && meP && !meP.isEliminated));
+        }
+      }
+      setIsSingle(false);
+    }
+  }, [name]);
+
+  const createRoom = async () => {
     if (!name.trim()) { setError("Enter your name"); return; }
     setError("");
-    const isSingle = mode === "single";
-    if (isSingle) {
+    if (mode === "single") {
       const bots = Array.from({ length: botCount }, (_, i) => ({ id: `bot-${i + 1}`, name: `Bot ${i + 1}`, isBot: true }));
       const human = { id: "me", name: name.trim(), isBot: false, isHost: true };
       setIsSingle(true);
@@ -170,32 +212,45 @@ export default function App() {
       setIsHost(true);
       setRoomCode("LOCAL");
       setScreen("lobby");
+      setSession(null);
       return;
     }
-    const ws = connect((ws) => ws.send(JSON.stringify({
-      type: "create_room",
-      name: name.trim(),
-      mode: "multi",
-      bots: 0,
-    })));
-    if (!ws) return;
+    try {
+      const res = await api("/api/room/create", { method: "POST", body: { name: name.trim(), mode: "multi", bots: 0 } });
+      applyServerState(res);
+    } catch (e) {
+      setError(e.message || "Failed to create room");
+    }
   };
-  const joinRoom = () => {
+
+  const joinRoom = async () => {
     if (!name.trim()) { setError("Enter your name"); return; }
     if (!joinCode.trim()) { setError("Enter room code"); return; }
     setError("");
-    const ws = connect((ws) => ws.send(JSON.stringify({ type: "join_room", code: joinCode.trim(), name: name.trim() })));
-    if (!ws) return;
+    try {
+      const res = await api("/api/room/join", { method: "POST", body: { code: joinCode.trim(), name: name.trim() } });
+      applyServerState(res);
+    } catch (e) {
+      setError(e.message || "Failed to join room");
+    }
   };
+
   const submittedSet = new Set(submitted);
   const readySet = new Set(readyState.ready || []);
   const gamePlayers = result
     ? result.players
-    : players.map((p) => ({ id: p.id, name: p.name, choice: null, score: p.score ?? 0, isEliminated: !!p.isEliminated, isBot: !!p.isBot }));
+    : players.map((p) => ({
+        id: p.id,
+        name: p.name,
+        choice: p.choice ?? null,
+        score: p.score ?? 0,
+        isEliminated: !!p.isEliminated,
+        isBot: !!p.isBot,
+      }));
   const me = gamePlayers.find((p) => p.id === playerId);
   const iAmEliminated = !!me?.isEliminated;
 
-  const startGame = useCallback(() => {
+  const startGame = useCallback(async () => {
     if (isSingle) {
       const names = players.map((p) => p.name);
       const ids = players.map((p) => p.id);
@@ -233,10 +288,15 @@ export default function App() {
       setScreen("game");
       return;
     }
-    wsRef.current?.send(JSON.stringify({ type: "start_game" }));
-  }, [isSingle, players]);
+    try {
+      const res = await api("/api/game/start", { method: "POST", body: { code: roomCode, playerId } });
+      applyServerState(res);
+    } catch (e) {
+      setError(e.message || "Failed to start game");
+    }
+  }, [isSingle, players, roomCode, playerId, applyServerState]);
 
-  const submit = useCallback((picked) => {
+  const submit = useCallback(async (picked) => {
     const raw = picked !== undefined ? picked : value;
     const v = parseFloat(raw);
     if (isNaN(v)) { setError("Select a number 0-100"); return; }
@@ -305,16 +365,24 @@ export default function App() {
       }
       return;
     }
-    wsRef.current?.send(JSON.stringify({ type: "submit", value: v }));
+    // multiplayer
+    if (submittedSelf || iAmEliminated) return;
     setSubmittedSelf(true);
-  }, [value, isSingle, submittedSelf, submitted, round, history]);
+    try {
+      const res = await api("/api/game/submit", { method: "POST", body: { code: roomCode, playerId, value: v } });
+      applyServerState(res);
+    } catch (e) {
+      setSubmittedSelf(false);
+      setError(e.message || "Failed to submit");
+    }
+  }, [value, isSingle, submittedSelf, iAmEliminated, submitted, round, history, roomCode, playerId, applyServerState]);
 
-  const nextRound = useCallback(() => {
+  const nextRound = useCallback(async () => {
     if (isSingle) {
       const logic = logicRef.current;
       const ids = idMapRef.current;
       if (!logic || !ids) return;
-      // reset round (no-op for logic, just clear submissions)
+      // reset round
       const submittedIds = [];
       for (let i = 1; i < ids.length; i++) {
         if (!logic.players[i].isEliminated) {
@@ -332,19 +400,52 @@ export default function App() {
     }
     if (readySent) return;
     setReadySent(true);
-    wsRef.current?.send(JSON.stringify({ type: "ready_next" }));
-  }, [isSingle, readySent]);
+    try {
+      const res = await api("/api/game/ready", { method: "POST", body: { code: roomCode, playerId } });
+      applyServerState(res);
+    } catch (e) {
+      setReadySent(false);
+      setError(e.message || "Failed to mark ready");
+    }
+  }, [isSingle, readySent, roomCode, playerId, applyServerState]);
 
+  // Multiplayer auto-rejoin once on load when session exists
   useEffect(() => {
-    if (!session || isSingle) return;
-    if (screen !== "landing") return;
-    // attempt auto-rejoin once on load when we have a saved multiplayer session
-    const ws = connect((sock) => {
-      sock.send(JSON.stringify({ type: "rejoin_room", code: session.code, playerId: session.playerId }));
-    });
-    if (!ws) return;
+    const s = sessionRef.current;
+    if (!s || screen !== "landing") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api("/api/room/rejoin", { method: "POST", body: { code: s.code, playerId: s.playerId } });
+        if (!cancelled) applyServerState(res);
+      } catch {
+        if (!cancelled) setSession(null);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Polling for multiplayer state
+  useEffect(() => {
+    if (isSingle) return;
+    if (!roomCode || !playerId) return;
+    if (screen !== "lobby" && screen !== "game") return;
+    let stopped = false;
+    const tick = async () => {
+      if (stopped) return;
+      try {
+        const res = await api(`/api/room/state?code=${encodeURIComponent(roomCode)}&playerId=${encodeURIComponent(playerId)}`);
+        if (!stopped) applyServerState(res);
+      } catch {
+        // ignore transient poll errors
+      }
+    };
+    tick();
+    const id = setInterval(tick, POLL_INTERVAL_MS);
+    return () => { stopped = true; clearInterval(id); };
+  }, [isSingle, roomCode, playerId, screen, applyServerState]);
+
+  // Ready countdown (UI)
   useEffect(() => {
     if (!result || gameOver || countdownLeft == null) return;
     if (countdownLeft <= 0) return;
@@ -352,10 +453,15 @@ export default function App() {
     return () => clearTimeout(t);
   }, [result, gameOver, countdownLeft]);
 
+  // Pick countdown (UI) + auto-submit when hits 0 (multiplayer)
   useEffect(() => {
     if (screen !== "game" || result || pickCountdownLeft == null) return;
     if (pickCountdownLeft <= 0) {
-      if (!submittedSelf && !iAmEliminated) {
+      if (!isSingle && !submittedSelf && !iAmEliminated) {
+        const fallback = lastPickRef.current != null ? lastPickRef.current : Math.floor(Math.random() * 101);
+        submit(fallback);
+      }
+      if (isSingle && !submittedSelf && !iAmEliminated) {
         const fallback = lastPickRef.current != null ? lastPickRef.current : Math.floor(Math.random() * 101);
         submit(fallback);
       }
@@ -363,7 +469,7 @@ export default function App() {
     }
     const t = setTimeout(() => setPickCountdownLeft((s) => (s == null ? s : Math.max(0, s - 1))), 1000);
     return () => clearTimeout(t);
-  }, [screen, result, pickCountdownLeft, submittedSelf, iAmEliminated, submit]);
+  }, [screen, result, pickCountdownLeft, submittedSelf, iAmEliminated, submit, isSingle]);
 
   if (screen === "landing") {
     return (
@@ -533,7 +639,7 @@ export default function App() {
               {players.map((p, i) => (
                 <li
                   key={p.id}
-                  className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 animate-fade-in"
+                  className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 animate-fade-in dark:bg-[#1f1533] dark:border-[#3a2a55]"
                   style={{ animationDelay: `${i * 40}ms` }}
                 >
                   <span className="font-medium">
@@ -561,7 +667,7 @@ export default function App() {
     );
   }
 
-  const winnerNames = result ? result.players.filter((p) => result.winnerIds?.includes(p.id)).map((p) => p.name) : [];
+  const winnerNames = result ? (result.players || []).filter((p) => result.winnerIds?.includes(p.id)).map((p) => p.name) : [];
   const activePlayers = gamePlayers.filter((p) => !p.isEliminated);
   const activeCount = activePlayers.length;
   const effectiveSubmittedSelf = submittedSelf || (!!me && !me.isEliminated && !result && submittedSet.has(playerId));

@@ -1,6 +1,8 @@
-# Beauty Contest (Web)
+# Beauty Contest (Web) — PHP (shared-hosting friendly)
 
-A real-time, web-based implementation of the **Beauty Contest** game (guess 2/3 of the average). Play solo against bots or multiplayer with friends in a room.
+A web-based implementation of the **Beauty Contest** game (guess 2/3 of the average). Play solo against bots or multiplayer with friends in a room.
+
+This branch ports the original Python/FastAPI backend to **PHP** and uses an **HTTP polling + MySQL** architecture for multiplayer so it can run on typical shared hosting (e.g. Hostinger Premium) without a long-running WebSocket process.
 
 ## How to Play
 
@@ -16,45 +18,79 @@ A real-time, web-based implementation of the **Beauty Contest** game (guess 2/3 
 
 ## Features
 
-- **Single player:** play locally against 1–9 AI opponents.
-- **Multiplayer rooms:** create/join rooms via room code over WebSockets, with host-controlled rounds.
+- **Single player:** play locally in the browser against 1–9 AI opponents (no backend required).
+- **Multiplayer rooms:** create/join rooms via room code over HTTP polling (`/api`) with state stored in MySQL.
 - **Session persistence:** multiplayer sessions can rejoin after a refresh.
 - **Round history & scoreboard:** per-round picks, averages/targets, logs, and live scores.
-- **Light/dark mode** and an in-app "How to Play" guide on the main screen.
+- **Light/dark mode** and in-app "How to Play" / tips.
 
 ## Project Structure
 
-- `backend/` — FastAPI + WebSockets server (game/room logic).
-  - `main.py` — WebSocket API (`/ws`) and message handling.
-  - `room_manager.py` — rooms, sessions, round flow.
-  - `game_logic.py` — core Beauty Contest rules and scoring.
-  - `config.py` — game constants.
+- `backend_php/` — PHP multiplayer backend (stateless HTTP API + MySQL) and game logic.
+  - `api.php` — API router (`/api/room/*`, `/api/game/*`, `/api/room/state`).
+  - `game_service.php` — room lifecycle, polling state snapshots, and deadline-based timers (pick/ready).
+  - `game_logic.php` — core Beauty Contest rules and scoring (banker's rounding, same behavior).
+  - `db.php` — PDO connection helper.
+  - `config.php` — game constants and DB configuration (`DB_*` env vars).
+  - `schema.sql` — MySQL schema (rooms, participants, submissions, readies, history).
+  - `composer.json` — PHP dependencies (autoload).
+  - `server.php`, `room_manager.php` — legacy WebSocket/Ratchet implementation (kept for reference; not used by the HTTP+MySQL flow).
+- `backend/` — original Python backend (kept for reference).
 - `frontend/` — React (Vite) + Tailwind CSS client (`src/App.jsx`, `src/gameLogic.js`).
-- `run.py` — convenience script to start backend and frontend together.
+- `index.php` — front controller: serves the built SPA from `frontend/dist`, routes `/api/*` to the backend.
+- `.htaccess` — rewrites `/api/*` to `backend_php/api.php` and falls back SPA routes to `index.php` (Apache/LiteSpeed).
+- `run_php.php` — convenience script to run the built app + API locally via PHP's built-in server.
+- `run.py` — original Python/Node convenience script.
 
 ## Run Locally
 
-**Prerequisites:** Python 3 and Node.js/npm.
+**Prerequisites:** PHP 8.1+ (with `pdo_mysql` and `json`), Composer, Node.js/npm, and a MySQL/MariaDB database (required for multiplayer).
 
-Install dependencies once:
+### 1. Create database and configure
 
-```bash
-cd backend && pip install -r requirements.txt
-cd ../frontend && npm install --include=dev
-```
-
-Start everything from the project root:
+Create a database and import the schema:
 
 ```bash
-python run.py
+mysql -u <user> -p <database> < backend_php/schema.sql
 ```
 
-- Backend: http://localhost:8000
-- Frontend: http://localhost:5173
+Configure DB credentials in `backend_php/config.php` or via environment variables: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASS` (defaults: host `127.0.0.1`, port `3306`, db `beautycontest`, user `root`, empty password).
 
-Open the frontend URL, choose Single Player or Multiplayer, and start playing. Press `Ctrl+C` to stop both.
+### 2. Build the frontend
 
-## Deployment
+```bash
+cd frontend
+npm install --include=dev
+npm run build
+```
 
-- `backend/` includes `Procfile` and `render.yaml` for hosting the FastAPI/WebSocket service (e.g. Render).
-- `frontend/` and the root include `vercel.json` for frontend deployment (e.g. Vercel). For deployed builds, set `VITE_WS_URL` to your backend WebSocket endpoint (e.g. `wss://<your-backend>/ws`).
+Multiplayer API calls are same-origin (`/api`) by default, so no extra build-time URL is required for typical deployments. To point at a different API origin, set `VITE_API_BASE` before building.
+
+### 3. Start the app
+
+From the project root:
+
+```bash
+php run_php.php
+```
+
+- App + API: http://localhost:5173 (serves `frontend/dist` and `/api`)
+
+Open the URL, choose Single Player or Multiplayer, and start playing. Press `Ctrl+C` to stop. (Single Player works without a database; Multiplayer requires the configured database.)
+
+## Deployment (Hostinger Premium / shared hosting)
+
+This architecture is designed for shared hosting: static SPA + PHP endpoints + MySQL (no persistent process, no custom port).
+
+1. **Database:** create a MySQL database/user in hPanel and import `backend_php/schema.sql`.
+2. **Configure:** set DB credentials via environment variables (`DB_HOST/DB_NAME/DB_USER/DB_PASS`) or edit `backend_php/config.php`.
+3. **Build:** `cd frontend && npm install --include=dev && npm run build` (same-origin `/api`, so `VITE_API_BASE` usually not needed).
+4. **Upload** to your domain root (e.g. `public_html`):
+   - `index.php`, `.htaccess`
+   - `frontend/dist/` (built assets)
+   - `backend_php/` (`api.php`, `game_service.php`, `game_logic.php`, `db.php`, `config.php`, `schema.sql`)
+   (You do not need `node_modules`, frontend source, or the legacy `server.php`/`room_manager.php` in production.)
+5. **hPanel:** set PHP 8.1+ for the domain and ensure `.htaccess` rewrites are enabled (default). Enable SSL.
+6. **Test:** open the domain. Single Player runs in-browser; Multiplayer uses `/api` with MySQL state, polling, and DB-stored deadlines for pick/ready timers.
+
+The legacy WebSocket backend (`backend_php/server.php`) remains in the repo for reference but is not required for this deployment model.

@@ -1,0 +1,12 @@
+RewriteEngine On
+
+# Serve existing files/directories as-is
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Multiplayer API (HTTP polling + MySQL)
+RewriteRule ^api/(.*)$ backend_php/api.php [QSA,L]
+
+# SPA/front-controller fallback for PHP deployments
+RewriteRule ^ index.php [QSA,L]

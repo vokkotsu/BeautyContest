@@ -1,3 +1,16 @@
-__pycache__
+__pycache__/
 
 .commandcode/
+
+# PHP/Composer
+backend_php/vendor/
+
+# Frontend build deps
+frontend/node_modules/
+frontend/.vercel/
+
+# Local env/secrets (create on server or locally as needed)
+.env
+backend_php/.env
+.env.*
+backend_php/.env.*
